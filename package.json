@@ -1,0 +1,28 @@
+{
+  "name": "pixiv-crawler-serverless",
+  "version": "1.0.0",
+  "description": "Pixiv crawler serverless project with TypeScript and Supabase",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "ts-node src/index.ts",
+    "start": "node dist/index.js",
+    "deploy": "vercel --prod"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.38.0",
+    "axios": "^1.6.0",
+    "cheerio": "^1.0.0-rc.12",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.8.0",
+    "@types/cheerio": "^0.22.35",
+    "typescript": "^5.2.2",
+    "ts-node": "^10.9.1",
+    "vercel": "^32.5.0"
+  },
+  "keywords": ["pixiv", "crawler", "serverless", "typescript", "supabase"],
+  "author": "Your Name",
+  "license": "MIT"
+} 
