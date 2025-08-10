@@ -1,298 +1,121 @@
-# 部署指南
+# Pixiv爬虫 Serverless 部署指南
 
-本文档详细说明如何将Pixiv爬虫项目部署到Vercel和Supabase。
+## 部署到 Vercel
 
-## 1. Supabase设置
+### 1. 环境准备
 
-### 1.1 创建Supabase项目
-
-1. 访问 [Supabase官网](https://supabase.com/)
-2. 点击 "Start your project" 创建新项目
-3. 选择组织或创建新组织
-4. 填写项目信息：
-   - 项目名称：`pixiv-crawler`
-   - 数据库密码：设置一个强密码
-   - 地区：选择离你最近的地区
-
-### 1.2 获取连接信息
-
-项目创建完成后，在项目设置中找到：
-
-- **Project URL**: 类似 `https://xxxxxxxxxxxxx.supabase.co`
-- **anon public key**: 类似 `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...`
-- **service_role key**: 类似 `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...`
-
-### 1.3 初始化数据库
-
-1. 在Supabase控制台中，进入 **SQL Editor**
-2. 复制 `supabase/init.sql` 文件内容
-3. 粘贴到SQL编辑器中并执行
-4. 验证表是否创建成功
-
-## 2. Vercel部署
-
-### 2.1 安装Vercel CLI
-
+确保你的项目已经正确构建：
 ```bash
-npm install -g vercel
+npm install
+npm run build
 ```
 
-### 2.2 登录Vercel
+### 2. 环境变量配置
 
+**重要：这是解决404错误的关键步骤！**
+
+在 Vercel 项目设置中添加以下环境变量：
+
+#### 必需的环境变量：
+- `SUPABASE_URL`: 你的 Supabase 项目 URL
+- `SUPABASE_ANON_KEY`: 你的 Supabase 匿名密钥
+
+#### 可选的环境变量：
+- `PIXIV_USER_AGENT`: Pixiv 请求的 User-Agent
+- `PIXIV_COOKIE`: Pixiv 登录 Cookie
+- `PIXIV_REFERER`: Pixiv 请求的 Referer
+
+### 3. 部署步骤
+
+1. 安装 Vercel CLI：
+```bash
+npm i -g vercel
+```
+
+2. 登录 Vercel：
 ```bash
 vercel login
 ```
 
-### 2.3 配置环境变量
-
-在项目根目录创建 `.env.local` 文件：
-
-```env
-SUPABASE_URL=https://xxxxxxxxxxxxx.supabase.co
-SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-PIXIV_COOKIE=your_pixiv_cookie_here
-PIXIV_USER_AGENT=Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:131.0) Gecko/20100101 Firefox/131.0
-PIXIV_REFERER=https://www.pixiv.net/artworks/112388359
-MAX_ILLUSTRATIONS=1000
-POPULARITY_THRESHOLD=0.22
-REQUEST_DELAY_MIN=0
-REQUEST_DELAY_MAX=1000
-MAX_REQUESTS_PER_HEADER=300
-```
-
-### 2.4 构建项目
-
-```bash
-npm run build
-```
-
-### 2.5 部署到Vercel
-
+3. 部署项目：
 ```bash
 vercel --prod
 ```
 
-部署过程中会询问一些配置：
-- 项目名称：`pixiv-crawler`
-- 是否覆盖：选择 `Y`
-- 环境变量：选择 `Y` 并确认
+### 4. 常见问题解决
 
-### 2.6 配置环境变量
+#### 问题：网站显示 404 错误
 
-在Vercel控制台中：
+**原因分析：**
+1. 环境变量未配置：缺少 Supabase 配置导致应用启动失败
+2. 数据库连接失败：Supabase 连接问题
+3. 构建文件缺失：`dist` 目录未生成
 
-1. 进入项目设置
-2. 选择 **Environment Variables**
-3. 添加所有环境变量
-4. 重新部署项目
+**解决方案：**
 
-## 3. 本地开发环境
+1. **检查环境变量**：
+   - 登录 Vercel 控制台
+   - 进入项目设置 → Environment Variables
+   - 添加 `SUPABASE_URL` 和 `SUPABASE_ANON_KEY`
 
-### 3.1 安装依赖
+2. **验证环境变量**：
+   - 访问你的网站
+   - 查看"环境配置"状态
+   - 如果显示"缺失"，说明环境变量未正确配置
 
-```bash
-npm install
-```
+3. **重新部署**：
+   ```bash
+   vercel --prod
+   ```
 
-### 3.2 配置环境变量
+#### 问题：Vercel 部署错误
 
-```bash
-cp env.example .env
-# 编辑 .env 文件，填入实际配置
-```
+如果遇到 `functions` 和 `builds` 冲突错误：
+- 确保 `vercel.json` 中只使用 `builds` 配置
+- 不要同时使用 `functions` 属性
 
-### 3.3 启动开发服务器
+### 5. 验证部署
 
+部署成功后，访问你的网站应该能看到：
+- Pixiv爬虫控制台界面
+- 系统状态显示"运行中"
+- 环境配置显示"正常"
+
+如果环境配置显示"缺失"，请检查环境变量设置。
+
+### 6. 本地测试
+
+在部署前，可以在本地测试：
 ```bash
 npm run dev
 ```
 
-### 3.4 测试API
+访问 `http://localhost:3000` 查看效果。
 
-```bash
-# 测试服务状态
-curl "http://localhost:3000/?action=status"
+### 7. 故障排除
 
-# 测试爬虫启动
-curl -X POST "http://localhost:3000/" \
-  -H "Content-Type: application/json" \
-  -d '{"pid": "12345678", "targetNum": 100}'
-```
+#### 检查日志
+在 Vercel 控制台查看函数日志，寻找错误信息。
 
-## 4. 监控和维护
+#### 环境变量测试
+使用环境变量检查端点：`/?action=env-check`
 
-### 4.1 Vercel监控
+#### 数据库连接测试
+确保 Supabase 项目正常运行，数据库表已创建。
 
-- 在Vercel控制台查看函数执行日志
-- 监控函数执行时间和错误率
-- 设置告警通知
+---
 
-### 4.2 Supabase监控
+## 注意事项
 
-- 监控数据库连接数
-- 查看查询性能
-- 设置存储空间告警
+1. **环境变量安全**：不要在代码中硬编码敏感信息
+2. **数据库权限**：确保 Supabase 匿名密钥有适当的权限
+3. **请求限制**：注意 Vercel 的函数执行时间限制
+4. **成本控制**：监控 Supabase 和 Vercel 的使用量
 
-### 4.3 日志分析
+## 技术支持
 
-```bash
-# 查看Vercel函数日志
-vercel logs
-
-# 查看特定函数的日志
-vercel logs --function=index
-```
-
-## 5. 故障排除
-
-### 5.1 常见部署问题
-
-#### 环境变量未生效
-```bash
-# 重新部署
-vercel --prod
-```
-
-#### 数据库连接失败
-- 检查Supabase URL和密钥
-- 确认网络连接正常
-- 验证数据库表是否创建
-
-#### 函数超时
-- 在 `vercel.json` 中调整 `maxDuration`
-- 优化代码逻辑，减少执行时间
-
-### 5.2 性能优化
-
-#### 数据库优化
-- 使用适当的索引
-- 优化查询语句
-- 考虑使用连接池
-
-#### 函数优化
-- 减少不必要的网络请求
-- 使用缓存机制
-- 异步处理耗时操作
-
-## 6. 安全考虑
-
-### 6.1 环境变量安全
-- 不要在代码中硬编码敏感信息
-- 使用Vercel的环境变量管理
-- 定期轮换密钥
-
-### 6.2 API安全
-- 考虑添加API密钥验证
-- 限制请求频率
-- 监控异常访问
-
-### 6.3 数据库安全
-- 使用最小权限原则
-- 定期备份数据
-- 监控异常查询
-
-## 7. 扩展部署
-
-### 7.1 多环境部署
-
-```bash
-# 开发环境
-vercel
-
-# 预发布环境
-vercel --target=preview
-
-# 生产环境
-vercel --prod
-```
-
-### 7.2 自定义域名
-
-1. 在Vercel控制台添加自定义域名
-2. 配置DNS记录
-3. 配置SSL证书
-
-### 7.3 CDN配置
-
-- 在Vercel中启用CDN
-- 配置缓存策略
-- 优化静态资源
-
-## 8. 备份和恢复
-
-### 8.1 数据库备份
-
-```bash
-# 使用Supabase CLI备份
-supabase db dump --db-url="postgresql://..."
-
-# 或使用pg_dump
-pg_dump "postgresql://..." > backup.sql
-```
-
-### 8.2 代码备份
-
-```bash
-# 推送到Git仓库
-git add .
-git commit -m "Backup before deployment"
-git push origin main
-```
-
-### 8.3 环境配置备份
-
-```bash
-# 导出Vercel环境变量
-vercel env ls > env_backup.txt
-```
-
-## 9. 更新和升级
-
-### 9.1 代码更新
-
-```bash
-# 拉取最新代码
-git pull origin main
-
-# 安装依赖
-npm install
-
-# 构建和部署
-npm run build
-vercel --prod
-```
-
-### 9.2 依赖更新
-
-```bash
-# 检查过时依赖
-npm outdated
-
-# 更新依赖
-npm update
-
-# 测试后部署
-npm run build
-vercel --prod
-```
-
-## 10. 成本优化
-
-### 10.1 Vercel成本
-- 监控函数执行次数
-- 优化函数执行时间
-- 使用免费额度
-
-### 10.2 Supabase成本
-- 监控数据库使用量
-- 优化查询性能
-- 使用免费额度
-
-## 联系支持
-
-如果遇到部署问题：
-
-1. 查看Vercel和Supabase官方文档
-2. 在GitHub上提交Issue
-3. 联系项目维护者 
+如果遇到问题，请检查：
+1. 环境变量配置
+2. Supabase 项目状态
+3. Vercel 部署日志
+4. 浏览器控制台错误 

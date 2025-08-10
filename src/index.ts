@@ -3,6 +3,32 @@ import { PixivCrawler } from './services/pixiv-crawler';
 import { getPixivHeaders } from './config';
 import { SupabaseService } from './database/supabase';
 
+// 检查环境变量
+function checkEnvironmentVariables(): boolean {
+  const requiredVars = ['SUPABASE_URL', 'SUPABASE_ANON_KEY'];
+  const missingVars = requiredVars.filter(varName => !process.env[varName]);
+  
+  if (missingVars.length > 0) {
+    console.warn(`Missing environment variables: ${missingVars.join(', ')}`);
+    return false;
+  }
+  
+  return true;
+}
+
+// 安全的数据库操作包装器
+async function safeDatabaseOperation<T>(operation: () => Promise<T>, defaultValue: T): Promise<T> {
+  try {
+    if (!checkEnvironmentVariables()) {
+      return defaultValue;
+    }
+    return await operation();
+  } catch (error) {
+    console.error('Database operation failed:', error);
+    return defaultValue;
+  }
+}
+
 // 主爬虫函数
 async function runCrawler(pid: string, targetNum: number = 1000): Promise<void> {
   try {
@@ -64,28 +90,54 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           });
         } else if (req.query.action === 'pics') {
           // 获取图片数据
-          const supabase = new SupabaseService();
           const tags = req.query.tags ? (req.query.tags as string).split(',') : [];
           const limit = parseInt(req.query.limit as string) || 10;
           
-          const pics = await supabase.getPicsByTags(tags, [], limit);
+          const pics = await safeDatabaseOperation(
+            async () => {
+              const supabase = new SupabaseService();
+              return await supabase.getPicsByTags(tags, [], limit);
+            },
+            []
+          );
           res.status(200).json({ pics, count: pics.length });
         } else if (req.query.action === 'stats') {
           // 获取统计信息
-          try {
-            const supabase = new SupabaseService();
-            const totalPics = await supabase.getTotalPicsCount();
-            const downloadedPics = await supabase.getDownloadedPicsCount();
-            const avgPopularity = await supabase.getAveragePopularity();
-            
-            res.status(200).json({
-              totalPics,
-              downloadedPics,
-              avgPopularity: avgPopularity.toFixed(2)
-            });
-          } catch (error) {
-            res.status(500).json({ error: '获取统计信息失败' });
-          }
+          const totalPics = await safeDatabaseOperation(
+            async () => {
+              const supabase = new SupabaseService();
+              return await supabase.getTotalPicsCount();
+            },
+            0
+          );
+          const downloadedPics = await safeDatabaseOperation(
+            async () => {
+              const supabase = new SupabaseService();
+              return await supabase.getDownloadedPicsCount();
+            },
+            0
+          );
+          const avgPopularity = await safeDatabaseOperation(
+            async () => {
+              const supabase = new SupabaseService();
+              return await supabase.getAveragePopularity();
+            },
+            0
+          );
+          
+          res.status(200).json({
+            totalPics,
+            downloadedPics,
+            avgPopularity: avgPopularity.toFixed(2)
+          });
+        } else if (req.query.action === 'env-check') {
+          // 检查环境变量状态
+          const isValid = checkEnvironmentVariables();
+          res.status(200).json({ 
+            valid: isValid,
+            message: isValid ? '环境变量配置正常' : '缺少必要的环境变量',
+            timestamp: new Date().toISOString()
+          });
         } else {
           // 返回HTML页面
           res.setHeader('Content-Type', 'text/html');
@@ -375,6 +427,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                         <div class="label">服务状态</div>
                     </div>
                     <div class="status-item">
+                        <div class="value" id="env-status">检查中</div>
+                        <div class="label">环境配置</div>
+                    </div>
+                    <div class="status-item">
                         <div class="value" id="total-pics">0</div>
                         <div class="label">总图片数</div>
                     </div>
@@ -495,6 +551,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 if (data.status === 'running') {
                     document.getElementById('status-value').textContent = '运行中';
                     document.getElementById('status-value').style.color = '#28a745';
+                }
+
+                // 检查环境变量状态
+                try {
+                    const envResponse = await fetch(\`\${API_BASE}/?action=env-check\`);
+                    if (envResponse.ok) {
+                        const envData = await envResponse.json();
+                        if (envData.valid) {
+                            document.getElementById('env-status').textContent = '正常';
+                            document.getElementById('env-status').style.color = '#28a745';
+                        } else {
+                            document.getElementById('env-status').textContent = '缺失';
+                            document.getElementById('env-status').style.color = '#dc3545';
+                        }
+                    }
+                } catch (error) {
+                    document.getElementById('env-status').textContent = '检查失败';
+                    document.getElementById('env-status').style.color = '#ffc107';
                 }
 
                 // 获取统计信息
