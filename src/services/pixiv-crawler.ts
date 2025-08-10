@@ -21,6 +21,11 @@ import {
 } from '../utils/pixiv-utils';
 import { CRAWLER_CONFIG } from '../config';
 
+// 日志管理器接口
+interface ILogManager {
+  addLog(message: string, type: 'info' | 'error' | 'warning' | 'success', taskId?: string): void;
+}
+
 export class PixivCrawler {
   private initPid: string;
   private headers: PixivHeaders;
@@ -28,13 +33,17 @@ export class PixivCrawler {
   private headerIndex: number;
   private supabase: SupabaseService;
   private httpClient: AxiosInstance;
+  private logManager: ILogManager;
+  private taskId: string;
 
-  constructor(pid: string, headersList: PixivHeaders[]) {
+  constructor(pid: string, headersList: PixivHeaders[], logManager: ILogManager, taskId: string) {
     this.initPid = pid;
     this.headers = headersList[0];
     this.headersList = headersList;
     this.headerIndex = 0;
     this.supabase = new SupabaseService();
+    this.logManager = logManager;
+    this.taskId = taskId;
     
     this.httpClient = axios.create({
       timeout: 30000,
@@ -47,7 +56,7 @@ export class PixivCrawler {
     this.headerIndex = (this.headerIndex + 1) % lenHeadersList;
     this.headers = this.headersList[this.headerIndex];
     this.httpClient.defaults.headers = this.headers as any;
-    console.log(`切换到p站headers第${this.headerIndex + 1}个`);
+    this.logManager.addLog(`切换到p站headers第${this.headerIndex + 1}个`, 'info', this.taskId);
   }
 
   async getIllustInfo(pid: string): Promise<PixivIllustInfo | null> {
@@ -65,11 +74,11 @@ export class PixivCrawler {
       if (resJson.error === false) {
         return resJson;
       } else {
-        console.log(`获取插画信息失败，错误json为${JSON.stringify(resJson)}`);
+        this.logManager.addLog(`获取插画信息失败，错误json为${JSON.stringify(resJson)}`, 'warning', this.taskId);
         return null;
       }
     } catch (error) {
-      console.error(`获取插画${pid}信息异常:`, error);
+      this.logManager.addLog(`获取插画${pid}信息异常: ${error instanceof Error ? error.message : String(error)}`, 'error', this.taskId);
       return null;
     }
   }
@@ -83,14 +92,14 @@ export class PixivCrawler {
       const resJson: PixivRecommendResponse = response.data;
       
       if (resJson.error === false) {
-        console.log(`获取插画：${pid}推荐列表成功！`);
+        this.logManager.addLog(`获取插画：${pid}推荐列表成功！`, 'info', this.taskId);
         return resJson;
       } else {
-        console.log(`获取插画信息失败，错误json为${JSON.stringify(resJson)}`);
+        this.logManager.addLog(`获取插画信息失败，错误json为${JSON.stringify(resJson)}`, 'warning', this.taskId);
         return null;
       }
     } catch (error) {
-      console.error(`获取插画${pid}推荐异常:`, error);
+      this.logManager.addLog(`获取插画${pid}推荐异常: ${error instanceof Error ? error.message : String(error)}`, 'error', this.taskId);
       return null;
     }
   }
@@ -104,14 +113,14 @@ export class PixivCrawler {
       const resJson: PixivUserRecommendResponse = response.data;
       
       if (resJson.error === false) {
-        console.log(`获取用户：${authorId}推荐列表成功！`);
+        this.logManager.addLog(`获取用户：${authorId}推荐列表成功！`, 'info', this.taskId);
         return resJson;
       } else {
-        console.log(`获取author建议信息失败，错误json为${JSON.stringify(resJson)}`);
+        this.logManager.addLog(`获取author建议信息失败，错误json为${JSON.stringify(resJson)}`, 'warning', this.taskId);
         return null;
       }
     } catch (error) {
-      console.error(`获取用户${authorId}推荐异常:`, error);
+      this.logManager.addLog(`获取用户${authorId}推荐异常: ${error instanceof Error ? error.message : String(error)}`, 'error', this.taskId);
       return null;
     }
   }
@@ -172,7 +181,7 @@ export class PixivCrawler {
           }
         }
       } catch (error) {
-        console.log(`递归获取插画pid：${pid}出现异常：${error}，自动跳过`);
+        this.logManager.addLog(`递归获取插画pid：${pid}出现异常：${error}，自动跳过`, 'warning', this.taskId);
         continue;
       }
     }
@@ -204,7 +213,7 @@ export class PixivCrawler {
     try {
       firstPids = await this.reGetIllust([pid], targetNum);
     } catch (error) {
-      console.log(`递归获取图片推荐异常:${error}，已自动切换cookie`);
+      this.logManager.addLog(`递归获取图片推荐异常:${error}，已自动切换cookie`, 'warning', this.taskId);
       this.setNextHeader();
     }
 
@@ -212,7 +221,7 @@ export class PixivCrawler {
     let failedCount = 0;
     let requestCount = 0;
 
-    console.log(`已获取相关图片${firstPids.length}张`);
+    this.logManager.addLog(`已获取相关图片${firstPids.length}张`, 'info', this.taskId);
 
     for (const firstPid of firstPids) {
       try {
@@ -232,8 +241,8 @@ export class PixivCrawler {
             const viewJson = getIllustData(info);
             if (viewJson) {
               const illustTags = getIllustTags(info);
-              console.log(`view_json:${JSON.stringify(viewJson)}`);
-              console.log(`tag:${JSON.stringify(illustTags)}`);
+              this.logManager.addLog(`view_json:${JSON.stringify(viewJson)}`, 'info', this.taskId);
+              this.logManager.addLog(`tag:${JSON.stringify(illustTags)}`, 'info', this.taskId);
 
               const now = formatDateTime(new Date());
               const tagsString = illustTags.join(', ');
@@ -257,13 +266,13 @@ export class PixivCrawler {
         }
       } catch (error) {
         failedCount++;
-        console.log(`处理pid:${firstPid}处理异常:${error}，已自动跳过`);
+        this.logManager.addLog(`处理pid:${firstPid}处理异常:${error}，已自动跳过`, 'warning', this.taskId);
       }
     }
 
     const endTime = Date.now();
     const elapsedTime = (endTime - startTime) / 1000;
     
-    console.log(`处理完成，耗时：${elapsedTime.toFixed(2)}秒，本次新增${popularityCount}张图片，写入数据库失败图片${failedCount}张，热门图片比例为${popularityCount / firstPids.length}`);
+    this.logManager.addLog(`处理完成，耗时：${elapsedTime.toFixed(2)}秒，本次新增${popularityCount}张图片，写入数据库失败图片${failedCount}张，热门图片比例为${popularityCount / firstPids.length}`, 'info', this.taskId);
   }
 } 

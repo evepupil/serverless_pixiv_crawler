@@ -3,13 +3,62 @@ import { PixivCrawler } from './services/pixiv-crawler';
 import { getPixivHeaders } from './config';
 import { SupabaseService } from './database/supabase';
 
+// 全局日志存储
+interface LogEntry {
+  id: string;
+  timestamp: string;
+  message: string;
+  type: 'info' | 'error' | 'warning' | 'success';
+  taskId?: string;
+}
+
+class LogManager {
+  private logs: LogEntry[] = [];
+  private maxLogs = 1000; // 最多保存1000条日志
+
+  addLog(message: string, type: LogEntry['type'] = 'info', taskId?: string): void {
+    const logEntry: LogEntry = {
+      id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+      timestamp: new Date().toISOString(),
+      message,
+      type,
+      taskId
+    };
+
+    this.logs.push(logEntry);
+
+    // 保持日志数量在限制内
+    if (this.logs.length > this.maxLogs) {
+      this.logs = this.logs.slice(-this.maxLogs);
+    }
+
+    // 同时输出到控制台
+    console.log('[' + logEntry.timestamp + '] [' + type.toUpperCase() + '] ' + message);
+  }
+
+  getLogs(taskId?: string, limit: number = 100): LogEntry[] {
+    let filteredLogs = this.logs;
+    if (taskId) {
+      filteredLogs = this.logs.filter(log => log.taskId === taskId);
+    }
+    return filteredLogs.slice(-limit);
+  }
+
+  clearLogs(): void {
+    this.logs = [];
+  }
+}
+
+// 全局日志管理器实例
+const logManager = new LogManager();
+
 // 检查环境变量
 function checkEnvironmentVariables(): boolean {
   const requiredVars = ['SUPABASE_URL', 'SUPABASE_ANON_KEY'];
   const missingVars = requiredVars.filter(varName => !process.env[varName]);
   
   if (missingVars.length > 0) {
-    console.warn(`Missing environment variables: ${missingVars.join(', ')}`);
+    console.warn('Missing environment variables: ' + missingVars.join(', '));
     return false;
   }
   
@@ -31,113 +80,90 @@ async function safeDatabaseOperation<T>(operation: () => Promise<T>, defaultValu
 
 // 主爬虫函数
 async function runCrawler(pid: string, targetNum: number = 1000): Promise<void> {
+  const taskId = 'single_' + pid + '_' + Date.now();
+  
   try {
-    const headersList = getPixivHeaders();
-    const pixivCrawler = new PixivCrawler(pid, headersList);
+    logManager.addLog('开始爬取Pixiv插画，起始PID: ' + pid + '，目标数量: ' + targetNum, 'info', taskId);
     
-    console.log(`开始爬取Pixiv插画，起始PID: ${pid}`);
+    const headersList = getPixivHeaders();
+    const pixivCrawler = new PixivCrawler(pid, headersList, logManager, taskId);
+    
+    logManager.addLog('爬虫初始化完成，使用 ' + headersList.length + ' 个请求头', 'info', taskId);
     await pixivCrawler.getPidsFromOriginPid(pid, targetNum);
-    console.log(`爬取完成，起始PID: ${pid}`);
+    
+    logManager.addLog('爬取完成，起始PID: ' + pid, 'success', taskId);
     
   } catch (error) {
-    console.error(`爬取失败，起始PID: ${pid}`, error);
+    logManager.addLog('爬取失败，起始PID: ' + pid + '，错误: ' + (error instanceof Error ? error.message : String(error)), 'error', taskId);
     throw error;
   }
 }
 
-// 批量爬取函数
+// 批量爬虫函数
 async function batchCrawl(pids: string[], targetNum: number = 1000): Promise<void> {
-  console.log(`开始批量爬取，共${pids.length}个PID`);
+  const taskId = 'batch_' + Date.now();
   
-  for (const pid of pids) {
-    if (pid.trim() === '') continue;
+  try {
+    logManager.addLog('开始批量爬取，共' + pids.length + '个PID，目标数量: ' + targetNum, 'info', taskId);
     
-    try {
-      await runCrawler(pid.trim(), targetNum);
-      console.log(`PID ${pid} 爬取完成`);
-    } catch (error) {
-      console.error(`PID ${pid} 爬取失败:`, error);
-      // 继续处理下一个PID
+    for (let i = 0; i < pids.length; i++) {
+      const pid = pids[i];
+      try {
+        logManager.addLog('处理第 ' + (i + 1) + '/' + pids.length + ' 个PID: ' + pid, 'info', taskId);
+        await runCrawler(pid, targetNum);
+        logManager.addLog('PID ' + pid + ' 爬取完成', 'success', taskId);
+      } catch (error) {
+        logManager.addLog('PID ' + pid + ' 爬取失败: ' + (error instanceof Error ? error.message : String(error)), 'error', taskId);
+      }
     }
+  } catch (error) {
+    logManager.addLog('批量爬取失败: ' + (error instanceof Error ? error.message : String(error)), 'error', taskId);
+    throw error;
   }
-  
-  console.log('批量爬取完成');
 }
 
-// API路由处理
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // 设置CORS头
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
-  if (req.method === 'OPTIONS') {
-    res.status(200).end();
-    return;
-  }
-
   try {
     const { method } = req;
+    
+    // 设置CORS头
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    
+    if (method === 'OPTIONS') {
+      res.status(200).end();
+      return;
+    }
 
     switch (method) {
       case 'GET':
-        // 获取爬虫状态或数据
-        if (req.query.action === 'status') {
-          res.status(200).json({ 
-            status: 'running', 
-            message: 'Pixiv爬虫服务运行中',
-            timestamp: new Date().toISOString()
-          });
-        } else if (req.query.action === 'pics') {
-          // 获取图片数据
-          const tags = req.query.tags ? (req.query.tags as string).split(',') : [];
-          const limit = parseInt(req.query.limit as string) || 10;
+        const action = req.query.action as string;
+        
+        if (action === 'status') {
+          // 返回服务状态
+          res.status(200).json({ status: 'running', timestamp: new Date().toISOString() });
+        } else if (action === 'stats') {
+          // 返回统计信息
+          const stats = await safeDatabaseOperation(async () => {
+            const supabase = new SupabaseService();
+            const totalPics = await supabase.getTotalPicsCount();
+            const downloadedPics = await supabase.getDownloadedPicsCount();
+            const avgPopularity = await supabase.getAveragePopularity();
+            return { totalPics, downloadedPics, avgPopularity };
+          }, { totalPics: 0, downloadedPics: 0, avgPopularity: 0 });
           
-          const pics = await safeDatabaseOperation(
-            async () => {
-              const supabase = new SupabaseService();
-              return await supabase.getPicsByTags(tags, [], limit);
-            },
-            []
-          );
-          res.status(200).json({ pics, count: pics.length });
-        } else if (req.query.action === 'stats') {
-          // 获取统计信息
-          const totalPics = await safeDatabaseOperation(
-            async () => {
-              const supabase = new SupabaseService();
-              return await supabase.getTotalPicsCount();
-            },
-            0
-          );
-          const downloadedPics = await safeDatabaseOperation(
-            async () => {
-              const supabase = new SupabaseService();
-              return await supabase.getDownloadedPicsCount();
-            },
-            0
-          );
-          const avgPopularity = await safeDatabaseOperation(
-            async () => {
-              const supabase = new SupabaseService();
-              return await supabase.getAveragePopularity();
-            },
-            0
-          );
-          
-          res.status(200).json({
-            totalPics,
-            downloadedPics,
-            avgPopularity: avgPopularity.toFixed(2)
-          });
-        } else if (req.query.action === 'env-check') {
-          // 检查环境变量状态
-          const isValid = checkEnvironmentVariables();
-          res.status(200).json({ 
-            valid: isValid,
-            message: isValid ? '环境变量配置正常' : '缺少必要的环境变量',
-            timestamp: new Date().toISOString()
-          });
+          res.status(200).json(stats);
+        } else if (action === 'env-check') {
+          // 检查环境变量
+          const valid = checkEnvironmentVariables();
+          res.status(200).json({ valid, timestamp: new Date().toISOString() });
+        } else if (action === 'logs') {
+          // 获取日志
+          const taskId = req.query.taskId as string;
+          const limit = parseInt(req.query.limit as string) || 100;
+          const logs = logManager.getLogs(taskId, limit);
+          res.status(200).json(logs);
         } else {
           // 返回HTML页面
           res.setHeader('Content-Type', 'text/html');
@@ -509,20 +535,70 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         // 配置
         const API_BASE = window.location.origin + '/api';
         let isRunning = false;
+        let currentTaskId = null;
+        let logPollingInterval = null;
 
         // 页面加载完成后初始化
         document.addEventListener('DOMContentLoaded', function() {
             refreshStatus();
             addLog('页面加载完成，系统就绪', 'info');
+            startLogPolling();
         });
+
+        // 开始日志轮询
+        function startLogPolling() {
+            if (logPollingInterval) {
+                clearInterval(logPollingInterval);
+            }
+            
+            logPollingInterval = setInterval(async () => {
+                if (currentTaskId) {
+                    await fetchLatestLogs();
+                }
+            }, 1000); // 每秒轮询一次
+        }
+
+        // 获取最新日志
+        async function fetchLatestLogs() {
+            try {
+                const response = await fetch(API_BASE + '/?action=logs&taskId=' + currentTaskId + '&limit=50');
+                if (response.ok) {
+                    const logs = await response.json();
+                    updateLogDisplay(logs);
+                }
+            } catch (error) {
+                // 静默处理轮询错误
+            }
+        }
+
+        // 更新日志显示
+        function updateLogDisplay(logs) {
+            const logContent = document.getElementById('log-content');
+            if (!logs || logs.length === 0) return;
+
+            // 清空现有日志
+            logContent.innerHTML = '';
+
+            // 添加新日志
+            logs.forEach(log => {
+                const logEntry = document.createElement('div');
+                logEntry.className = 'log-entry ' + log.type;
+                const timestamp = new Date(log.timestamp).toLocaleTimeString();
+                logEntry.textContent = '[' + timestamp + '] ' + log.message;
+                logContent.appendChild(logEntry);
+            });
+
+            // 滚动到底部
+            logContent.scrollTop = logContent.scrollHeight;
+        }
 
         // 添加日志
         function addLog(message, type = 'info') {
             const logContent = document.getElementById('log-content');
             const timestamp = new Date().toLocaleTimeString();
             const logEntry = document.createElement('div');
-            logEntry.className = \`log-entry \${type}\`;
-            logEntry.textContent = \`[\${timestamp}] \${message}\`;
+            logEntry.className = 'log-entry ' + type;
+            logEntry.textContent = '[' + timestamp + '] ' + message;
             logContent.appendChild(logEntry);
             logContent.scrollTop = logContent.scrollHeight;
         }
@@ -531,7 +607,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         function showAlert(message, type = 'info') {
             const alertContainer = document.getElementById('alert-container');
             const alert = document.createElement('div');
-            alert.className = \`alert \${type}\`;
+            alert.className = 'alert ' + type;
             alert.textContent = message;
             alertContainer.appendChild(alert);
             alert.style.display = 'block';
@@ -545,7 +621,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         // 刷新状态
         async function refreshStatus() {
             try {
-                const response = await fetch(\`\${API_BASE}/?action=status\`);
+                const response = await fetch(API_BASE + '/?action=status');
                 const data = await response.json();
                 
                 if (data.status === 'running') {
@@ -555,7 +631,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
                 // 检查环境变量状态
                 try {
-                    const envResponse = await fetch(\`\${API_BASE}/?action=env-check\`);
+                    const envResponse = await fetch(API_BASE + '/?action=env-check');
                     if (envResponse.ok) {
                         const envData = await envResponse.json();
                         if (envData.valid) {
@@ -572,7 +648,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 }
 
                 // 获取统计信息
-                const statsResponse = await fetch(\`\${API_BASE}/?action=stats\`);
+                const statsResponse = await fetch(API_BASE + '/?action=stats');
                 if (statsResponse.ok) {
                     const statsData = await statsResponse.json();
                     document.getElementById('total-pics').textContent = statsData.totalPics || 0;
@@ -581,7 +657,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 }
                 
             } catch (error) {
-                addLog(\`状态刷新失败: \${error.message}\`, 'error');
+                addLog('状态刷新失败: ' + error.message, 'error');
             }
         }
 
@@ -606,10 +682,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 btn.disabled = true;
                 btn.innerHTML = '<span class="loading"></span>爬取中...';
 
-                addLog(\`开始爬取PID: \${pid}，目标数量: \${targetNum}\`, 'info');
+                addLog('开始爬取PID: ' + pid + '，目标数量: ' + targetNum, 'info');
                 showProgress();
 
-                const response = await fetch(\`\${API_BASE}\`, {
+                const response = await fetch(API_BASE, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -623,8 +699,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 const result = await response.json();
                 
                 if (response.ok) {
-                    showAlert(\`爬虫任务已启动: \${result.message}\`, 'success');
-                    addLog(\`任务启动成功: \${result.message}\`, 'info');
+                    showAlert('爬虫任务已启动: ' + result.message, 'success');
+                    addLog('任务启动成功: ' + result.message, 'info');
                     
                     // 模拟进度更新
                     simulateProgress();
@@ -633,8 +709,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 }
 
             } catch (error) {
-                addLog(\`爬取启动失败: \${error.message}\`, 'error');
-                showAlert(\`启动失败: \${error.message}\`, 'error');
+                addLog('爬取启动失败: ' + error.message, 'error');
+                showAlert('启动失败: ' + error.message, 'error');
             } finally {
                 isRunning = false;
                 const btn = document.getElementById('single-btn');
@@ -654,7 +730,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 return;
             }
 
-            const pids = pidsText.split('\\n').map(pid => pid.trim()).filter(pid => pid);
+            const pids = pidsText.split('\n').map(pid => pid.trim()).filter(pid => pid);
 
             if (pids.length === 0) {
                 showAlert('没有找到有效的PID', 'error');
@@ -672,10 +748,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 btn.disabled = true;
                 btn.innerHTML = '<span class="loading"></span>批量爬取中...';
 
-                addLog(\`开始批量爬取，共\${pids.length}个PID，目标数量: \${targetNum}\`, 'info');
+                addLog('开始批量爬取，共' + pids.length + '个PID，目标数量: ' + targetNum, 'info');
                 showProgress();
 
-                const response = await fetch(\`\${API_BASE}\`, {
+                const response = await fetch(API_BASE, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -689,8 +765,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 const result = await response.json();
                 
                 if (response.ok) {
-                    showAlert(\`批量爬虫任务已启动: \${result.message}\`, 'success');
-                    addLog(\`批量任务启动成功: \${result.message}\`, 'info');
+                    showAlert('批量爬虫任务已启动: ' + result.message, 'success');
+                    addLog('批量任务启动成功: ' + result.message, 'info');
                     
                     // 模拟进度更新
                     simulateProgress();
@@ -699,8 +775,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 }
 
             } catch (error) {
-                addLog(\`批量爬取启动失败: \${error.message}\`, 'error');
-                showAlert(\`启动失败: \${error.message}\`, 'error');
+                addLog('批量爬取启动失败: ' + error.message, 'error');
+                showAlert('启动失败: ' + error.message, 'error');
             } finally {
                 isRunning = false;
                 const btn = document.getElementById('batch-btn');
@@ -740,7 +816,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 }
                 
                 progressFill.style.width = progress + '%';
-                progressText.textContent = \`爬取中... \${Math.round(progress)}%\`;
+                progressText.textContent = '爬取中... ' + Math.round(progress) + '%';
             }, 500);
         }
 
@@ -792,7 +868,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       default:
         res.setHeader('Allow', ['GET', 'POST']);
-        res.status(405).json({ error: `Method ${method} Not Allowed` });
+        res.status(405).json({ error: 'Method ' + method + ' Not Allowed' });
     }
   } catch (error) {
     console.error('API处理错误:', error);
@@ -813,7 +889,7 @@ if (require.main === module) {
     const pid = args[0];
     const targetNum = args[1] ? parseInt(args[1]) : 1000;
     
-    console.log(`命令行模式：爬取PID ${pid}，目标数量 ${targetNum}`);
+    console.log('命令行模式：爬取PID ' + pid + '，目标数量 ' + targetNum);
     runCrawler(pid, targetNum).catch(console.error);
   } else {
     console.log('请提供PID参数，例如: npm run dev 12345678');
