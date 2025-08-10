@@ -507,7 +507,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     <script>
         // 配置
-        const API_BASE = window.location.origin;
+        const API_BASE = window.location.origin + '/api';
         let isRunning = false;
 
         // 页面加载完成后初始化
@@ -609,7 +609,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 addLog(\`开始爬取PID: \${pid}，目标数量: \${targetNum}\`, 'info');
                 showProgress();
 
-                const response = await fetch(\`\${API_BASE}/\`, {
+                const response = await fetch(\`\${API_BASE}\`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -675,7 +675,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 addLog(\`开始批量爬取，共\${pids.length}个PID，目标数量: \${targetNum}\`, 'info');
                 showProgress();
 
-                const response = await fetch(\`\${API_BASE}/\`, {
+                const response = await fetch(\`\${API_BASE}\`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
