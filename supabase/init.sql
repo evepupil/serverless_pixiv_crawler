@@ -71,6 +71,48 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- 创建排行类型枚举（daily, weekly, monthly）
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'rank_type') THEN
+        CREATE TYPE rank_type AS ENUM ('daily', 'weekly', 'monthly');
+    END IF;
+END$$;
+
+-- 创建排行榜表
+CREATE TABLE IF NOT EXISTS ranking (
+    id BIGSERIAL PRIMARY KEY,
+    pid VARCHAR(255) NOT NULL,
+    rank INTEGER NOT NULL CHECK (rank > 0),
+    rank_type rank_type NOT NULL,
+    -- 日榜：当日日期；周/月榜：可记录周期开始日期
+    rank_date DATE NOT NULL,
+    crawl_time TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 如果历史上存在与 pic 的外键约束，移除之，确保 ranking 与 pic 无关联
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE constraint_name = 'fk_ranking_pic' AND table_name = 'ranking'
+    ) THEN
+        ALTER TABLE ranking DROP CONSTRAINT fk_ranking_pic;
+    END IF;
+END$$;
+
+-- 唯一约束：同一类型 + 日期 同一 pid 只保留一条
+CREATE UNIQUE INDEX IF NOT EXISTS uq_ranking_unique ON ranking(rank_type, rank_date, pid);
+
+-- 常用查询索引
+CREATE INDEX IF NOT EXISTS idx_ranking_type_date_rank ON ranking(rank_type, rank_date, rank);
+CREATE INDEX IF NOT EXISTS idx_ranking_pid ON ranking(pid);
+
+-- 为Ranking表添加更新时间触发器
+CREATE TRIGGER update_ranking_updated_at BEFORE UPDATE ON ranking FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
 -- 创建函数用于获取随机图片
 CREATE OR REPLACE FUNCTION get_random_pics_by_tags(search_tags TEXT[], limit_count INTEGER DEFAULT 6)
 RETURNS TABLE(pid VARCHAR, tag TEXT, popularity DECIMAL) AS $$

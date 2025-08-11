@@ -1,5 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { DatabasePic } from '../types';
+import { DatabasePic, PixivDailyRankItem } from '../types';
 
 export class SupabaseService {
   private client: SupabaseClient;
@@ -162,6 +162,31 @@ export class SupabaseService {
     } catch (error) {
       console.error('Error getting average popularity:', error);
       return 0;
+    }
+  }
+
+  // 排行榜写入/更新
+  async upsertRankings(items: PixivDailyRankItem[], rankDate: string, type: 'daily' | 'weekly' | 'monthly'): Promise<void> {
+    if (!items || items.length === 0) return;
+
+    // 组装数据库行
+    const rows = items.map(item => ({
+      pid: item.pid,
+      rank: item.rank,
+      rank_type: type,
+      rank_date: rankDate,
+      crawl_time: new Date(item.crawl_time)
+    }));
+
+    const { error } = await this.client
+      .from('ranking')
+      .upsert(rows, {
+        onConflict: 'rank_type,rank_date,pid'
+      });
+
+    if (error) {
+      console.error('Error upserting rankings:', error);
+      throw error;
     }
   }
 }

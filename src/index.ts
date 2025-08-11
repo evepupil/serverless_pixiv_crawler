@@ -110,6 +110,33 @@ class LogManager {
   }
 }
 
+// 榜单爬虫函数（按类型）
+async function runRanking(type: 'daily' | 'weekly' | 'monthly', taskId?: string): Promise<void> {
+  if (!taskId) {
+    taskId = type + '_' + new Date().toISOString().slice(0, 10) + '_' + Date.now();
+  }
+
+  try {
+    logManager.addLog(`开始获取Pixiv${type}排行榜`, 'info', taskId);
+    const headersList = getPixivHeaders();
+    const pixivCrawler = new PixivCrawler('0', headersList, logManager, taskId, 0.0);
+
+    const res = type === 'daily' ? await pixivCrawler.getDailyRank() : (type === 'weekly' ? await pixivCrawler.getWeeklyRank() : await pixivCrawler.getMonthlyRank());
+    if (res && res.error === false) {
+      const rankings = res.body.rankings;
+      const rankDate = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+      const supabase = new SupabaseService();
+      await supabase.upsertRankings(rankings, rankDate, type);
+      logManager.addLog(`${type} 排行榜入库完成，共 ${rankings.length} 条`, 'success', taskId);
+    } else {
+      logManager.addLog(`获取${type}排行榜失败或返回为空`, 'warning', taskId);
+    }
+  } catch (error) {
+    logManager.addLog(`${type} 排行榜任务失败: ` + (error instanceof Error ? error.message : String(error)), 'error', taskId);
+    throw error;
+  }
+}
+
 // 全局日志管理器实例
 const logManager = new LogManager();
 
@@ -384,6 +411,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           const limit = parseInt(req.query.limit as string) || 100;
           const logs = logManager.getLogs(taskId, limit);
           res.status(200).json(logs);
+        } else if (action === 'daily' || action === 'weekly' || action === 'monthly') {
+          // 触发按类型排行榜抓取
+          const type = action as 'daily' | 'weekly' | 'monthly';
+          const taskId = type + '_' + new Date().toISOString().slice(0, 10) + '_' + Date.now();
+          logManager.addLog(`收到${type}排行榜抓取请求`, 'info', taskId);
+          res.status(200).json({ message: `${type} 排行榜任务已启动`, taskId, timestamp: new Date().toISOString() });
+          runRanking(type, taskId).catch(error => {
+            logManager.addLog(`${type} 排行榜任务执行失败: ` + (error instanceof Error ? error.message : String(error)), 'error', taskId);
+          });
         } else {
           // 返回HTML页面
           try {

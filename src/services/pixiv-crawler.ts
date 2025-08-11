@@ -4,7 +4,9 @@ import {
   PixivRecommendResponse, 
   PixivUserRecommendResponse, 
   PixivHeaders,
-  DatabasePic 
+  DatabasePic,
+  PixivDailyRankResponse,
+  PixivDailyRankItem
 } from '../types';
 import { SupabaseService } from '../database/supabase';
 import { 
@@ -112,6 +114,111 @@ export class PixivCrawler {
       this.logManager.addLog(`获取插画${pid}推荐异常: ${error instanceof Error ? error.message : String(error)}`, 'error', this.taskId);
       return null;
     }
+  }
+  async getDailyRank(authorId?: string): Promise<PixivDailyRankResponse | null> {
+    try {
+      const sleepTime = getRandomDelay(CRAWLER_CONFIG.REQUEST_DELAY_MIN, CRAWLER_CONFIG.REQUEST_DELAY_MAX);
+      await sleep(sleepTime);
+      const response = await this.httpClient.get(
+        `https://www.pixiv.net/ranking.php?mode=daily&content=illust`,
+        { responseType: 'text' }
+      );
+      this.logManager.addLog(`获取每日榜单成功，html为${response}`, 'info', this.taskId);
+
+      const html: string = typeof response.data === 'string' ? response.data : String(response.data);
+      // 提取形如 /artworks/123456789 的链接，捕获数字作为 pid
+      const pidRegex = /<a\s+[^>]*href=["']\/artworks\/(\d+)["'][^>]*>/g;
+      const pidToFirstRank = new Map<string, number>();
+      let match: RegExpExecArray | null;
+      let index = 0;
+      while ((match = pidRegex.exec(html)) !== null) {
+        const pid = match[1];
+        if (!pidToFirstRank.has(pid)) {
+          // 排名按首次出现顺序计算，从1开始
+          pidToFirstRank.set(pid, index + 1);
+        }
+        index += 1;
+        // 安全阈值，避免无意义地解析过多
+        if (pidToFirstRank.size >= 200) {
+          break;
+        }
+      }
+
+      if (pidToFirstRank.size === 0) {
+        this.logManager.addLog(`解析每日榜单页面失败，未发现任何PID`, 'warning', this.taskId);
+        return { body: { rankings: [] }, error: false } as PixivDailyRankResponse;
+      }
+
+      const now = formatDateTime(new Date());
+      const rankings: PixivDailyRankItem[] = Array.from(pidToFirstRank.entries())
+        .sort((a, b) => a[1] - b[1])
+        .map(([pid, rank]) => ({
+          pid,
+          rank,
+          crawl_time: now
+        }));
+
+      this.logManager.addLog(`获取每日榜单成功，解析到 ${rankings.length} 个PID`, 'info', this.taskId);
+      return {
+        body: { rankings },
+        error: false
+      };
+    } catch (error) {
+      this.logManager.addLog(`获取每日榜单异常: ${error instanceof Error ? error.message : String(error)}`, 'error', this.taskId);
+      return null;
+    }
+  }
+
+  private async getRankByMode(mode: 'daily' | 'weekly' | 'monthly'): Promise<PixivDailyRankResponse | null> {
+    try {
+      const sleepTime = getRandomDelay(CRAWLER_CONFIG.REQUEST_DELAY_MIN, CRAWLER_CONFIG.REQUEST_DELAY_MAX);
+      await sleep(sleepTime);
+
+      const response = await this.httpClient.get(
+        `https://www.pixiv.net/ranking.php?mode=${mode}&content=illust`,
+        { responseType: 'text' }
+      );
+
+      const html: string = typeof response.data === 'string' ? response.data : String(response.data);
+      const pidRegex = /<a\s+[^>]*href=["']\/artworks\/(\d+)["'][^>]*>/g;
+      const pidToFirstRank = new Map<string, number>();
+      let match: RegExpExecArray | null;
+      let index = 0;
+      while ((match = pidRegex.exec(html)) !== null) {
+        const pid = match[1];
+        if (!pidToFirstRank.has(pid)) {
+          pidToFirstRank.set(pid, index + 1);
+        }
+        index += 1;
+        if (pidToFirstRank.size >= 200) {
+          break;
+        }
+      }
+
+      if (pidToFirstRank.size === 0) {
+        this.logManager.addLog(`解析${mode}榜单页面失败，未发现任何PID`, 'warning', this.taskId);
+        return { body: { rankings: [] }, error: false } as PixivDailyRankResponse;
+      }
+
+      const now = formatDateTime(new Date());
+      const rankings: PixivDailyRankItem[] = Array.from(pidToFirstRank.entries())
+        .sort((a, b) => a[1] - b[1])
+        .map(([pid, rank]) => ({ pid, rank, crawl_time: now }));
+
+      this.logManager.addLog(`获取${mode}榜单成功，解析到 ${rankings.length} 个PID`, 'info', this.taskId);
+      return { body: { rankings }, error: false };
+    } catch (error) {
+      this.logManager.addLog(`获取${mode}榜单异常: ${error instanceof Error ? error.message : String(error)}`, 'error', this.taskId);
+      return null;
+    }
+  }
+
+  async getWeeklyRank(): Promise<PixivDailyRankResponse | null> {
+    return this.getRankByMode('weekly');
+  }
+
+  async getMonthlyRank(): Promise<PixivDailyRankResponse | null> {
+    return this.getRankByMode('monthly');
   }
 
   async getAuthorRecommend(authorId: string): Promise<PixivUserRecommendResponse | null> {

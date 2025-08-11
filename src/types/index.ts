@@ -38,6 +38,19 @@ export interface PixivUserRecommendResponse {
   error: boolean;
 }
 
+export interface PixivDailyRankItem {
+  pid: string;
+  rank: number;
+  crawl_time: string;
+}
+
+export interface PixivDailyRankResponse {
+  body: {
+    rankings: PixivDailyRankItem[];
+  };
+  error: boolean;
+}
+
 export interface PixivHeaders {
   'User-Agent': string;
   cookie: string;
