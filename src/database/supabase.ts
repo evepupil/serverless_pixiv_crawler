@@ -143,16 +143,25 @@ export class SupabaseService {
   }
 
   async getAveragePopularity(): Promise<number> {
-    const { data, error } = await this.client
-      .from('pic')
-      .select('popularity');
+    try {
+      const { data, error } = await this.client
+        .from('pic')
+        .select('popularity');
 
-    if (error || !data || data.length === 0) {
+      if (error) {
+        console.error('Error getting average popularity:', error);
+        return 0;
+      }
+
+      if (!data || data.length === 0) {
+        return 0;
+      }
+
+      const totalPopularity = data.reduce((sum, pic) => sum + (pic.popularity || 0), 0);
+      return Number((totalPopularity / data.length).toFixed(2));
+    } catch (error) {
       console.error('Error getting average popularity:', error);
       return 0;
     }
-
-    const totalPopularity = data.reduce((sum, pic) => sum + (pic.popularity || 0), 0);
-    return totalPopularity / data.length;
   }
-} 
+}

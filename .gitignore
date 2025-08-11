@@ -170,3 +170,4 @@ sessions/
 *.backup
 *.bak
 *.old
+.vercel
