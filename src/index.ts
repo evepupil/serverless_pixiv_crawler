@@ -17,6 +17,50 @@ interface LogEntry {
 class LogManager {
   private logs: LogEntry[] = [];
   private maxLogs = 1000; // 最多保存1000条日志
+  private logFile = '/tmp/pixiv_crawler_logs.json'; // 临时文件路径
+
+  constructor() {
+    this.loadLogsFromFile();
+  }
+
+  /**
+   * 从文件加载日志
+   */
+  private loadLogsFromFile(): void {
+    try {
+      if (fs.existsSync(this.logFile)) {
+        const data = fs.readFileSync(this.logFile, 'utf8');
+        const savedLogs = JSON.parse(data);
+        if (Array.isArray(savedLogs)) {
+          // 只加载最近1小时的日志
+          const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+          this.logs = savedLogs.filter(log => new Date(log.timestamp) > oneHourAgo);
+        }
+      }
+    } catch (error) {
+      console.warn('加载日志文件失败:', error);
+      this.logs = [];
+    }
+  }
+
+  /**
+   * 保存日志到文件
+   */
+  private saveLogsToFile(): void {
+    try {
+      // 确保目录存在
+      const dir = path.dirname(this.logFile);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      
+      // 只保存最近的日志
+      const logsToSave = this.logs.slice(-this.maxLogs);
+      fs.writeFileSync(this.logFile, JSON.stringify(logsToSave, null, 2));
+    } catch (error) {
+      console.warn('保存日志文件失败:', error);
+    }
+  }
 
   addLog(message: string, type: LogEntry['type'] = 'info', taskId?: string): void {
     const logEntry: LogEntry = {
@@ -36,9 +80,17 @@ class LogManager {
 
     // 同时输出到控制台
     console.log('[' + logEntry.timestamp + '] [' + type.toUpperCase() + '] ' + message);
+
+    // 异步保存到文件（避免阻塞）
+    setImmediate(() => {
+      this.saveLogsToFile();
+    });
   }
 
   getLogs(taskId?: string, limit: number = 100): LogEntry[] {
+    // 先尝试从文件重新加载最新日志
+    this.loadLogsFromFile();
+    
     let filteredLogs = this.logs;
     if (taskId) {
       filteredLogs = this.logs.filter(log => log.taskId === taskId);
@@ -48,6 +100,13 @@ class LogManager {
 
   clearLogs(): void {
     this.logs = [];
+    try {
+      if (fs.existsSync(this.logFile)) {
+        fs.unlinkSync(this.logFile);
+      }
+    } catch (error) {
+      console.warn('删除日志文件失败:', error);
+    }
   }
 }
 

@@ -486,6 +486,11 @@
             <!-- 日志面板 -->
             <div class="card">
                 <h3>📝 实时日志</h3>
+                <div style="margin-bottom: 10px;">
+                    <button class="btn btn-secondary" onclick="manualGetLogs()" style="margin-right: 10px;">🔄 手动获取日志</button>
+                    <button class="btn btn-secondary" onclick="getAllLogs()" style="margin-right: 10px;">📋 获取所有日志</button>
+                    <button class="btn btn-secondary" onclick="clearLogDisplay()">🗑️ 清空显示</button>
+                </div>
                 <div class="log-panel" id="log-content">
                     <div class="log-entry info">[系统] 等待日志输出...</div>
                 </div>
@@ -529,52 +534,152 @@
                 clearInterval(logPollingInterval);
             }
             
+            addLog(`开始日志轮询，TaskID: ${currentTaskId}`, 'info');
+            
             logPollingInterval = setInterval(async () => {
                 if (currentTaskId) {
                     try {
-                        const response = await fetch(API_BASE + '/?action=logs&taskId=' + currentTaskId + '&limit=50');
+                        const url = API_BASE + '/?action=logs&taskId=' + currentTaskId + '&limit=50';
+                        console.log('轮询日志URL:', url);
+                        
+                        const response = await fetch(url);
+                        console.log('日志响应状态:', response.status);
+                        
                         if (response.ok) {
                             const logs = await response.json();
-                            updateLogDisplay(logs);
+                            console.log('获取到日志数量:', logs.length);
+                            
+                            if (logs.length > 0) {
+                                updateLogDisplay(logs);
+                            } else {
+                                // 如果没有获取到日志，显示调试信息
+                                addLog(`[调试] 未获取到TaskID ${currentTaskId} 的日志`, 'warning');
+                            }
+                        } else {
+                            const errorText = await response.text();
+                            addLog(`[调试] 日志获取失败: ${response.status} - ${errorText}`, 'error');
                         }
                     } catch (error) {
                         console.error('获取日志失败:', error);
+                        addLog(`[调试] 日志轮询异常: ${error.message}`, 'error');
                     }
                 }
             }, 2000); // 每2秒获取一次日志
         }
 
-        // 更新日志显示
+        // 停止日志轮询
+        function stopLogPolling() {
+            if (logPollingInterval) {
+                clearInterval(logPollingInterval);
+                logPollingInterval = null;
+                addLog('日志轮询已停止', 'info');
+            }
+        }
+
+        // 存储已显示的日志ID，避免重复显示
+        let displayedLogIds = new Set();
+
+        /**
+         * 更新日志显示 - 智能追加新日志而不是覆盖
+         * @param {Array} logs - 日志数组
+         */
         function updateLogDisplay(logs) {
             const logContent = document.getElementById('log-content');
             
             if (logs && logs.length > 0) {
-                // 清空现有日志
-                logContent.innerHTML = '';
+                let hasNewLogs = false;
                 
-                // 添加新日志
+                // 只添加新的日志条目
                 logs.forEach(log => {
-                    const logEntry = document.createElement('div');
-                    logEntry.className = 'log-entry ' + log.type;
-                    const timestamp = new Date(log.timestamp).toLocaleTimeString();
-                    logEntry.textContent = '[' + timestamp + '] ' + log.message;
-                    logContent.appendChild(logEntry);
+                    if (!displayedLogIds.has(log.id)) {
+                        displayedLogIds.add(log.id);
+                        hasNewLogs = true;
+                        
+                        const logEntry = document.createElement('div');
+                        logEntry.className = 'log-entry ' + log.type;
+                        logEntry.setAttribute('data-log-id', log.id);
+                        const timestamp = new Date(log.timestamp).toLocaleTimeString();
+                        logEntry.textContent = '[' + timestamp + '] ' + log.message;
+                        logContent.appendChild(logEntry);
+                    }
                 });
                 
-                // 滚动到底部
-                logContent.scrollTop = logContent.scrollHeight;
+                // 如果有新日志，滚动到底部
+                if (hasNewLogs) {
+                    logContent.scrollTop = logContent.scrollHeight;
+                }
+                
+                // 限制显示的日志数量，避免页面过载
+                const maxDisplayLogs = 200;
+                const logEntries = logContent.querySelectorAll('.log-entry');
+                if (logEntries.length > maxDisplayLogs) {
+                    const removeCount = logEntries.length - maxDisplayLogs;
+                    for (let i = 0; i < removeCount; i++) {
+                        const removedEntry = logEntries[i];
+                        const logId = removedEntry.getAttribute('data-log-id');
+                        if (logId) {
+                            displayedLogIds.delete(logId);
+                        }
+                        removedEntry.remove();
+                    }
+                }
+                
+                // 检查是否有任务完成的日志
+                const lastLog = logs[logs.length - 1];
+                if (lastLog && (lastLog.message.includes('爬取完成') || lastLog.message.includes('任务完成') || lastLog.message.includes('批量爬取结束'))) {
+                    addLog('检测到任务完成，停止日志轮询', 'info');
+                    stopLogPolling();
+                    isRunning = false;
+                    
+                    // 重置按钮状态
+                    const singleBtn = document.getElementById('single-btn');
+                    const batchBtn = document.getElementById('batch-btn');
+                    singleBtn.disabled = false;
+                    singleBtn.innerHTML = '🚀 开始爬取';
+                    batchBtn.disabled = false;
+                    batchBtn.innerHTML = '🚀 批量爬取';
+                    
+                    hideProgress();
+                    refreshStatus(); // 刷新统计信息
+                }
             }
         }
 
-        // 添加日志条目
+        /**
+         * 添加本地日志条目（前端生成的日志）
+         * @param {string} message - 日志消息
+         * @param {string} type - 日志类型
+         */
         function addLog(message, type = 'info') {
             const logContent = document.getElementById('log-content');
             const timestamp = new Date().toLocaleTimeString();
-            const logEntry = document.createElement('div');
-            logEntry.className = 'log-entry ' + type;
-            logEntry.textContent = '[' + timestamp + '] ' + message;
-            logContent.appendChild(logEntry);
-            logContent.scrollTop = logContent.scrollHeight;
+            
+            // 为前端生成的日志创建唯一ID
+            const logId = 'frontend_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+            
+            // 检查是否已经显示过相同的日志
+            if (!displayedLogIds.has(logId)) {
+                displayedLogIds.add(logId);
+                
+                const logEntry = document.createElement('div');
+                logEntry.className = 'log-entry ' + type;
+                logEntry.setAttribute('data-log-id', logId);
+                logEntry.textContent = '[' + timestamp + '] ' + message;
+                logContent.appendChild(logEntry);
+                logContent.scrollTop = logContent.scrollHeight;
+                
+                // 限制显示的日志数量
+                const maxDisplayLogs = 200;
+                const logEntries = logContent.querySelectorAll('.log-entry');
+                if (logEntries.length > maxDisplayLogs) {
+                    const removedEntry = logEntries[0];
+                    const removedLogId = removedEntry.getAttribute('data-log-id');
+                    if (removedLogId) {
+                        displayedLogIds.delete(removedLogId);
+                    }
+                    removedEntry.remove();
+                }
+            }
         }
 
         // 显示提示框
@@ -812,6 +917,75 @@
                 progressFill.style.width = progress + '%';
                 progressText.textContent = '爬取中... ' + Math.round(progress) + '%';
             }, 500);
+        }
+
+        // 手动获取日志
+        async function manualGetLogs() {
+            if (!currentTaskId) {
+                showAlert('没有活动的任务ID', 'warning');
+                return;
+            }
+            
+            try {
+                addLog(`手动获取TaskID ${currentTaskId} 的日志...`, 'info');
+                const url = API_BASE + '/?action=logs&taskId=' + currentTaskId + '&limit=100';
+                const response = await fetch(url);
+                
+                if (response.ok) {
+                    const logs = await response.json();
+                    addLog(`手动获取到 ${logs.length} 条日志`, 'info');
+                    if (logs.length > 0) {
+                        updateLogDisplay(logs);
+                    } else {
+                        addLog('该TaskID没有找到任何日志', 'warning');
+                    }
+                } else {
+                    const errorText = await response.text();
+                    addLog(`手动获取日志失败: ${response.status} - ${errorText}`, 'error');
+                }
+            } catch (error) {
+                addLog(`手动获取日志异常: ${error.message}`, 'error');
+            }
+        }
+
+        // 获取所有日志
+        async function getAllLogs() {
+            try {
+                addLog('获取所有日志...', 'info');
+                const url = API_BASE + '/?action=logs&limit=200';
+                const response = await fetch(url);
+                
+                if (response.ok) {
+                    const logs = await response.json();
+                    addLog(`获取到 ${logs.length} 条全部日志`, 'info');
+                    if (logs.length > 0) {
+                        updateLogDisplay(logs);
+                    } else {
+                        addLog('系统中没有任何日志', 'warning');
+                    }
+                } else {
+                    const errorText = await response.text();
+                    addLog(`获取所有日志失败: ${response.status} - ${errorText}`, 'error');
+                }
+            } catch (error) {
+                addLog(`获取所有日志异常: ${error.message}`, 'error');
+            }
+        }
+
+        /**
+         * 清空日志显示
+         */
+        function clearLogDisplay() {
+            const logContent = document.getElementById('log-content');
+            
+            // 清空去重集合
+            displayedLogIds.clear();
+            
+            // 清空日志显示区域
+            logContent.innerHTML = '';
+            
+            // 添加清空提示
+            addLog('日志显示已清空', 'info');
         }
 
         // 定期刷新状态
