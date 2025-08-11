@@ -267,11 +267,11 @@ function getInlineHTML(): string {
 
 // 检查环境变量
 function checkEnvironmentVariables(): boolean {
-  const requiredVars = ['SUPABASE_URL', 'SUPABASE_ANON_KEY'];
-  const missingVars = requiredVars.filter(varName => !process.env[varName]);
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_PUBLISHABLE_KEY;
   
-  if (missingVars.length > 0) {
-    console.warn('Missing environment variables: ' + missingVars.join(', '));
+  if (!url || !key) {
+    console.warn('Missing environment variables: SUPABASE_URL or SUPABASE_SECRET_KEY/SUPABASE_PUBLISHABLE_KEY');
     return false;
   }
   
@@ -375,7 +375,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               platform: process.platform,
               envVarsCheck: {
                 supabaseUrl: !!process.env.SUPABASE_URL,
-                supabaseKey: !!process.env.SUPABASE_ANON_KEY,
+                supabaseKey: !!(process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_PUBLISHABLE_KEY),
                 pixivCookie: !!process.env.PIXIV_COOKIE
               }
             };
@@ -492,7 +492,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         // 检查环境变量配置
         if (!checkEnvironmentVariables()) {
-          res.status(500).json({ error: '环境变量配置不完整，请检查 SUPABASE_URL 和 SUPABASE_ANON_KEY' });
+          res.status(500).json({ error: '环境变量配置不完整，请检查 SUPABASE_URL 和 SUPABASE_SECRET_KEY/SUPABASE_PUBLISHABLE_KEY' });
           return;
         }
 
