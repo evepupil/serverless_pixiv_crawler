@@ -20,3 +20,9 @@ POPULARITY_THRESHOLD = "0.22"
 REQUEST_DELAY_MIN = "0"
 REQUEST_DELAY_MAX = "1000"
 MAX_REQUESTS_PER_HEADER = "300"
+# wrangler.toml (wrangler v3.88.0^)
+[observability.logs]
+enabled = true
+
+
+
