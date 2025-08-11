@@ -528,11 +528,18 @@
             });
         }
 
+        // 日志轮询相关变量
+        let emptyLogCount = 0; // 连续获取不到日志的次数
+        const MAX_EMPTY_LOG_COUNT = 10; // 最大连续空日志次数（20秒）
+        
         // 开始日志轮询
         function startLogPolling() {
             if (logPollingInterval) {
                 clearInterval(logPollingInterval);
             }
+            
+            // 重置计数器
+            emptyLogCount = 0;
             
             addLog(`开始日志轮询，TaskID: ${currentTaskId}`, 'info');
             
@@ -550,10 +557,38 @@
                             console.log('获取到日志数量:', logs.length);
                             
                             if (logs.length > 0) {
+                                // 重置空日志计数器
+                                emptyLogCount = 0;
                                 updateLogDisplay(logs);
                             } else {
-                                // 如果没有获取到日志，显示调试信息
-                                addLog(`[调试] 未获取到TaskID ${currentTaskId} 的日志`, 'warning');
+                                // 增加空日志计数器
+                                emptyLogCount++;
+                                
+                                if (emptyLogCount >= MAX_EMPTY_LOG_COUNT) {
+                                    addLog(`连续${MAX_EMPTY_LOG_COUNT}次未获取到日志，任务可能已完成，停止轮询`, 'info');
+                                    stopLogPolling();
+                                    isRunning = false;
+                                    
+                                    // 重置按钮状态
+                                    const singleBtn = document.getElementById('single-btn');
+                                    const batchBtn = document.getElementById('batch-btn');
+                                    if (singleBtn) {
+                                        singleBtn.disabled = false;
+                                        singleBtn.innerHTML = '🚀 开始爬取';
+                                    }
+                                    if (batchBtn) {
+                                        batchBtn.disabled = false;
+                                        batchBtn.innerHTML = '🚀 批量爬取';
+                                    }
+                                    
+                                    hideProgress();
+                                    refreshStatus(); // 刷新统计信息
+                                } else {
+                                    // 只在前几次显示调试信息
+                                    if (emptyLogCount <= 3) {
+                                        addLog(`[调试] 未获取到TaskID ${currentTaskId} 的日志 (${emptyLogCount}/${MAX_EMPTY_LOG_COUNT})`, 'warning');
+                                    }
+                                }
                             }
                         } else {
                             const errorText = await response.text();
@@ -624,9 +659,19 @@
                     }
                 }
                 
+                // 基于实际日志更新进度条
+                updateProgressFromLogs(logs);
+                
                 // 检查是否有任务完成的日志
-                const lastLog = logs[logs.length - 1];
-                if (lastLog && (lastLog.message.includes('爬取完成') || lastLog.message.includes('任务完成') || lastLog.message.includes('批量爬取结束'))) {
+                const hasCompletionLog = logs.some(log => 
+                    log.message.includes('🎉 爬取完成！') || 
+                    log.message.includes('爬取完成') || 
+                    log.message.includes('任务完成') || 
+                    log.message.includes('批量爬取结束') ||
+                    log.message.includes('📊 爬取任务完成统计')
+                );
+                
+                if (hasCompletionLog && isRunning) {
                     addLog('检测到任务完成，停止日志轮询', 'info');
                     stopLogPolling();
                     isRunning = false;
@@ -634,10 +679,14 @@
                     // 重置按钮状态
                     const singleBtn = document.getElementById('single-btn');
                     const batchBtn = document.getElementById('batch-btn');
-                    singleBtn.disabled = false;
-                    singleBtn.innerHTML = '🚀 开始爬取';
-                    batchBtn.disabled = false;
-                    batchBtn.innerHTML = '🚀 批量爬取';
+                    if (singleBtn) {
+                        singleBtn.disabled = false;
+                        singleBtn.innerHTML = '🚀 开始爬取';
+                    }
+                    if (batchBtn) {
+                        batchBtn.disabled = false;
+                        batchBtn.innerHTML = '🚀 批量爬取';
+                    }
                     
                     hideProgress();
                     refreshStatus(); // 刷新统计信息
@@ -789,9 +838,6 @@
                     
                     // 开始实时日志轮询
                     startLogPolling();
-                    
-                    // 模拟进度更新
-                    simulateProgress();
                 } else {
                     throw new Error(result.error || '启动失败');
                 }
@@ -897,26 +943,76 @@
             document.getElementById('progress-container').style.display = 'none';
         }
 
-        // 模拟进度更新
-        function simulateProgress() {
-            let progress = 0;
+        /**
+         * 基于实际日志更新进度条
+         * @param {Array} logs - 日志数组
+         */
+        function updateProgressFromLogs(logs) {
+            if (!logs || logs.length === 0) return;
+            
             const progressFill = document.getElementById('progress-fill');
             const progressText = document.getElementById('progress-text');
             
-            const interval = setInterval(() => {
-                progress += Math.random() * 10;
-                if (progress >= 100) {
-                    progress = 100;
-                    clearInterval(interval);
-                    setTimeout(() => {
-                        hideProgress();
-                        addLog('爬取任务完成', 'info');
-                    }, 1000);
+            // 查找关键进度信息
+            let totalPics = 0;
+            let processedPics = 0;
+            let currentStatus = '准备中...';
+            
+            logs.forEach(log => {
+                if (log.message.includes('已获取相关图片') && log.message.includes('张')) {
+                    const match = log.message.match(/已获取相关图片(\d+)张/);
+                    if (match) {
+                        totalPics = parseInt(match[1]);
+                        currentStatus = `已获取 ${totalPics} 张相关图片，开始处理...`;
+                    }
                 }
                 
-                progressFill.style.width = progress + '%';
-                progressText.textContent = '爬取中... ' + Math.round(progress) + '%';
-            }, 500);
+                if (log.message.includes('处理完成')) {
+                    const match = log.message.match(/本次新增(\d+)张图片/);
+                    if (match) {
+                        processedPics = parseInt(match[1]);
+                        currentStatus = `处理完成，新增 ${processedPics} 张图片`;
+                    }
+                }
+                
+                if (log.message.includes('爬取完成') || log.message.includes('🎉 爬取完成！')) {
+                     currentStatus = '爬取任务完成';
+                 }
+                 
+                 if (log.message.includes('📊 爬取任务完成统计')) {
+                     currentStatus = '正在生成统计报告...';
+                 }
+            });
+            
+            // 计算进度百分比
+            let progress = 0;
+            if (totalPics > 0) {
+                // 基于处理的图片数量计算进度
+                const processingLogs = logs.filter(log => 
+                    log.message.includes('view_json:') || 
+                    log.message.includes('处理pid:') ||
+                    log.message.includes('处理异常')
+                ).length;
+                
+                progress = Math.min(95, (processingLogs / totalPics) * 100);
+                
+                if (currentStatus.includes('处理完成') || currentStatus.includes('爬取完成')) {
+                    progress = 100;
+                }
+            } else if (logs.some(log => log.message.includes('开始爬取'))) {
+                progress = 10; // 已开始
+            }
+            
+            // 更新进度条
+            progressFill.style.width = progress + '%';
+            progressText.textContent = currentStatus;
+            
+            // 如果任务完成，延迟隐藏进度条
+            if (progress >= 100 && currentStatus.includes('完成')) {
+                setTimeout(() => {
+                    hideProgress();
+                }, 2000);
+            }
         }
 
         // 手动获取日志

@@ -264,8 +264,11 @@ async function safeDatabaseOperation<T>(operation: () => Promise<T>, defaultValu
 }
 
 // 主爬虫函数
-async function runCrawler(pid: string, targetNum: number = 1000, popularityThreshold: number = 0.22): Promise<void> {
-  const taskId = 'single_' + pid + '_' + Date.now();
+async function runCrawler(pid: string, targetNum: number = 1000, popularityThreshold: number = 0.22, taskId?: string): Promise<void> {
+  // 如果没有提供taskId，则生成一个新的
+  if (!taskId) {
+    taskId = 'single_' + pid + '_' + Date.now();
+  }
   
   try {
     logManager.addLog(`开始爬取Pixiv插画，起始PID: ${pid}，目标数量: ${targetNum}，热度阈值: ${popularityThreshold}`, 'info', taskId);
@@ -285,8 +288,11 @@ async function runCrawler(pid: string, targetNum: number = 1000, popularityThres
 }
 
 // 批量爬虫函数
-async function batchCrawl(pids: string[], targetNum: number = 1000, popularityThreshold: number = 0.22): Promise<void> {
-  const taskId = 'batch_' + Date.now();
+async function batchCrawl(pids: string[], targetNum: number = 1000, popularityThreshold: number = 0.22, taskId?: string): Promise<void> {
+  // 如果没有提供taskId，则生成一个新的
+  if (!taskId) {
+    taskId = 'batch_' + Date.now();
+  }
   
   try {
     logManager.addLog(`开始批量爬取，共${pids.length}个PID，目标数量: ${targetNum}，热度阈值: ${popularityThreshold}`, 'info', taskId);
@@ -295,12 +301,16 @@ async function batchCrawl(pids: string[], targetNum: number = 1000, popularityTh
       const pid = pids[i];
       try {
         logManager.addLog('处理第 ' + (i + 1) + '/' + pids.length + ' 个PID: ' + pid, 'info', taskId);
-        await runCrawler(pid, targetNum, popularityThreshold);
+        // 为每个PID创建子任务ID，但仍然使用主TaskID记录日志
+        const subTaskId = taskId + '_' + pid;
+        await runCrawler(pid, targetNum, popularityThreshold, subTaskId);
         logManager.addLog('PID ' + pid + ' 爬取完成', 'success', taskId);
       } catch (error) {
         logManager.addLog('PID ' + pid + ' 爬取失败: ' + (error instanceof Error ? error.message : String(error)), 'error', taskId);
       }
     }
+    
+    logManager.addLog(`批量爬取结束，共处理${pids.length}个PID`, 'success', taskId);
   } catch (error) {
     logManager.addLog('批量爬取失败: ' + (error instanceof Error ? error.message : String(error)), 'error', taskId);
     throw error;
@@ -462,8 +472,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             timestamp: new Date().toISOString()
           });
           
-          // 异步执行爬虫任务，添加更好的错误处理
-          runCrawler(pid, targetNum, threshold).catch(error => {
+          // 异步执行爬虫任务，传递正确的TaskID
+          runCrawler(pid, targetNum, threshold, taskId).catch(error => {
             logManager.addLog('爬虫任务执行失败: ' + (error instanceof Error ? error.message : String(error)), 'error', taskId);
             console.error('爬虫任务执行失败:', error);
           });
@@ -482,8 +492,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             timestamp: new Date().toISOString()
           });
           
-          // 异步执行批量爬虫任务，添加更好的错误处理
-          batchCrawl(pids, targetNum, threshold).catch(error => {
+          // 异步执行批量爬虫任务，传递正确的TaskID
+          batchCrawl(pids, targetNum, threshold, taskId).catch(error => {
             logManager.addLog('批量爬虫任务执行失败: ' + (error instanceof Error ? error.message : String(error)), 'error', taskId);
             console.error('批量爬虫任务执行失败:', error);
           });

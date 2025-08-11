@@ -275,14 +275,57 @@ export class PixivCrawler {
           }
         }
       } catch (error) {
-        failedCount++;
-        this.logManager.addLog(`处理pid:${firstPid}处理异常:${error}，已自动跳过`, 'warning', this.taskId);
+        // 解析错误信息，提供更友好的提示
+        let errorMessage = '';
+        let isDuplicate = false;
+        
+        if (error && typeof error === 'object') {
+          // 检查是否是Supabase错误
+          if ('code' in error && 'message' in error) {
+            const supabaseError = error as any;
+            if (supabaseError.code === '23505' || supabaseError.message?.includes('duplicate key')) {
+              errorMessage = `PID:${firstPid} 已存在于数据库中，跳过重复插入`;
+              isDuplicate = true;
+            } else {
+              errorMessage = `数据库错误: ${supabaseError.message || supabaseError.code}`;
+            }
+          } else if ('message' in error) {
+            errorMessage = (error as Error).message;
+          } else {
+            errorMessage = JSON.stringify(error);
+          }
+        } else {
+          errorMessage = String(error);
+        }
+        
+        if (isDuplicate) {
+          this.logManager.addLog(errorMessage, 'info', this.taskId);
+        } else {
+          failedCount++;
+          this.logManager.addLog(`处理PID:${firstPid}异常: ${errorMessage}，已自动跳过`, 'warning', this.taskId);
+        }
       }
     }
 
     const endTime = Date.now();
     const elapsedTime = (endTime - startTime) / 1000;
     
-    this.logManager.addLog(`处理完成，耗时：${elapsedTime.toFixed(2)}秒，本次新增${popularityCount}张图片，写入数据库失败图片${failedCount}张，热门图片比例为${popularityCount / firstPids.length}`, 'info', this.taskId);
+    // 详细的统计信息
+    const totalProcessed = firstPids.length;
+    const successRate = ((totalProcessed - failedCount) / totalProcessed * 100).toFixed(1);
+    const popularityRate = (popularityCount / totalProcessed * 100).toFixed(1);
+    
+    this.logManager.addLog(`处理完成，耗时：${elapsedTime.toFixed(2)}秒，本次新增${popularityCount}张图片，写入数据库失败图片${failedCount}张，热门图片比例为${popularityRate}%`, 'info', this.taskId);
+    
+    // 添加详细的爬取完成总结
+    this.logManager.addLog(`📊 爬取任务完成统计：`, 'success', this.taskId);
+    this.logManager.addLog(`🎯 目标数量: ${targetNum} 张`, 'success', this.taskId);
+    this.logManager.addLog(`📥 实际获取: ${totalProcessed} 张相关图片`, 'success', this.taskId);
+    this.logManager.addLog(`✅ 符合热度阈值(≥${this.popularityThreshold}): ${popularityCount} 张`, 'success', this.taskId);
+    this.logManager.addLog(`❌ 处理失败: ${failedCount} 张`, failedCount > 0 ? 'warning' : 'success', this.taskId);
+    this.logManager.addLog(`📈 成功率: ${successRate}%`, 'success', this.taskId);
+    this.logManager.addLog(`🔥 热门图片比例: ${popularityRate}%`, 'success', this.taskId);
+    this.logManager.addLog(`⏱️ 总耗时: ${elapsedTime.toFixed(2)} 秒`, 'success', this.taskId);
+    this.logManager.addLog(`🎉 爬取完成！`, 'success', this.taskId);
   }
 }
