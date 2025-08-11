@@ -6,7 +6,10 @@ export class SupabaseService {
 
   constructor(supabaseUrl?: string, supabaseKey?: string) {
     const url = supabaseUrl || (typeof process !== 'undefined' ? process.env.SUPABASE_URL : undefined);
-    const key = supabaseKey || (typeof process !== 'undefined' ? process.env.SUPABASE_ANON_KEY : undefined);
+    // 优先使用 Secret Key（绕过 RLS），如果没有则使用 Publishable Key
+    const key = supabaseKey || 
+                (typeof process !== 'undefined' ? process.env.SUPABASE_SECRET_KEY : undefined) ||
+                (typeof process !== 'undefined' ? process.env.SUPABASE_PUBLISHABLE_KEY : undefined);
 
     if (!url || !key) {
       throw new Error('Missing Supabase environment variables');
