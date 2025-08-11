@@ -1,193 +1,9 @@
-// Cloudflare Workers 专用爬虫实现
-// 使用纯 Web API，不依赖 Node.js 模块
+// Cloudflare Workers 主入口文件
+// 使用分离的服务模块，复用 Vercel 版本的架构
 
-interface PixivDailyRankItem {
-  pid: string;
-  rank: number;
-  crawl_time: string;
-}
-
-interface PixivDailyRankResponse {
-  body: {
-    rankings: PixivDailyRankItem[];
-  };
-  error: boolean;
-}
-
-class PixivCrawlerCF {
-  private pixivCookie: string;
-  private referer: string;
-  private userAgent: string;
-
-  constructor(env: any) {
-    this.pixivCookie = env.PIXIV_COOKIE;
-    this.referer = env.PIXIV_REFERER || 'https://www.pixiv.net/artworks/123456789';
-    this.userAgent = env.PIXIV_USER_AGENT || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:131.0) Gecko/20100101 Firefox/131.0';
-  }
-
-  private getHeaders(): HeadersInit {
-    return {
-      'Cookie': this.pixivCookie,
-      'Referer': this.referer,
-      'User-Agent': this.userAgent,
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-      'Accept-Language': 'en-US,en;q=0.5',
-      'Accept-Encoding': 'gzip, deflate, br',
-      'Connection': 'keep-alive',
-      'Upgrade-Insecure-Requests': '1',
-    };
-  }
-
-  async getDailyRank(): Promise<PixivDailyRankResponse> {
-    try {
-      const response = await fetch('https://www.pixiv.net/ranking.php?mode=daily', {
-        headers: this.getHeaders()
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const html = await response.text();
-      const pids = this.extractPidsFromHTML(html);
-      
-      const rankings: PixivDailyRankItem[] = pids.map((pid, index) => ({
-        pid,
-        rank: index + 1,
-        crawl_time: new Date().toISOString()
-      }));
-
-      return {
-        body: { rankings },
-        error: false
-      };
-    } catch (error) {
-      return {
-        body: { rankings: [] },
-        error: true
-      };
-    }
-  }
-
-  async getWeeklyRank(): Promise<PixivDailyRankResponse> {
-    try {
-      const response = await fetch('https://www.pixiv.net/ranking.php?mode=weekly', {
-        headers: this.getHeaders()
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const html = await response.text();
-      const pids = this.extractPidsFromHTML(html);
-      
-      const rankings: PixivDailyRankItem[] = pids.map((pid, index) => ({
-        pid,
-        rank: index + 1,
-        crawl_time: new Date().toISOString()
-      }));
-
-      return {
-        body: { rankings },
-        error: false
-      };
-    } catch (error) {
-      return {
-        body: { rankings: [] },
-        error: true
-      };
-    }
-  }
-
-  async getMonthlyRank(): Promise<PixivDailyRankResponse> {
-    try {
-      const response = await fetch('https://www.pixiv.net/ranking.php?mode=monthly', {
-        headers: this.getHeaders()
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const html = await response.text();
-      const pids = this.extractPidsFromHTML(html);
-      
-      const rankings: PixivDailyRankItem[] = pids.map((pid, index) => ({
-        pid,
-        rank: index + 1,
-        crawl_time: new Date().toISOString()
-      }));
-
-      return {
-        body: { rankings },
-        error: false
-      };
-    } catch (error) {
-      return {
-        body: { rankings: [] },
-        error: true
-      };
-    }
-  }
-
-  async getHomeRecommendedPids(): Promise<string[]> {
-    try {
-      const response = await fetch('https://www.pixiv.net/', {
-        headers: this.getHeaders()
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const html = await response.text();
-      return this.extractPidsFromHTML(html);
-    } catch (error) {
-      return [];
-    }
-  }
-
-  private extractPidsFromHTML(html: string): string[] {
-    // 提取 /artworks/{pid} 格式的链接
-    const pidRegex = /<a\s+[^>]*href=["']\/artworks\/(\d+)["'][^>]*>/g;
-    const pids: string[] = [];
-    let match: RegExpExecArray | null;
-    
-    while ((match = pidRegex.exec(html)) !== null) {
-      pids.push(match[1]);
-    }
-
-    // 去重并限制数量
-    return Array.from(new Set(pids)).slice(0, 100);
-  }
-
-  async getPidsFromOriginPid(pid: string, targetNum: number = 100): Promise<string[]> {
-    try {
-      const response = await fetch(`https://www.pixiv.net/artworks/${pid}`, {
-        headers: this.getHeaders()
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const html = await response.text();
-      const pids = this.extractPidsFromHTML(html);
-      
-      // 模拟相关推荐逻辑
-      const relatedPids: string[] = [];
-      for (let i = 0; i < Math.min(targetNum, 50); i++) {
-        const randomPid = Math.floor(Math.random() * 1000000) + 100000;
-        relatedPids.push(randomPid.toString());
-      }
-
-      return [...pids, ...relatedPids].slice(0, targetNum);
-    } catch (error) {
-      return [];
-    }
-  }
-}
+import { PixivCrawler } from './src/services/pixiv-crawler';
+import { SupabaseService } from './src/database/supabase';
+import { getPixivHeaders } from './src/config';
 
 // 主 Worker 入口
 export default {
@@ -209,19 +25,39 @@ export default {
     }
 
     const action = query.action as string;
-    const crawler = new PixivCrawlerCF(env);
     
     if (request.method === 'GET') {
       if (action === 'status') {
-        return new Response(JSON.stringify({ 
-          status: 'running', 
-          timestamp: new Date().toISOString(),
-          environment: 'cloudflare-workers',
-          features: ['daily-rank', 'weekly-rank', 'monthly-rank', 'home-recommend', 'pid-crawl']
-        }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' }
-        });
+        try {
+          const supabase = new SupabaseService(env);
+          const totalPics = await supabase.getTotalPicsCount();
+          const downloadedPics = await supabase.getDownloadedPicsCount();
+          
+          return new Response(JSON.stringify({ 
+            status: 'running', 
+            timestamp: new Date().toISOString(),
+            environment: 'cloudflare-workers',
+            features: ['daily-rank', 'weekly-rank', 'monthly-rank', 'home-recommend', 'pid-crawl', 'database-write'],
+            stats: {
+              totalPics,
+              downloadedPics
+            }
+          }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        } catch (error) {
+          return new Response(JSON.stringify({ 
+            status: 'running', 
+            timestamp: new Date().toISOString(),
+            environment: 'cloudflare-workers',
+            features: ['daily-rank', 'weekly-rank', 'monthly-rank', 'home-recommend', 'pid-crawl', 'database-write'],
+            stats: { error: 'Failed to get stats' }
+          }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
       }
       
       if (action === 'env-check') {
@@ -230,6 +66,8 @@ export default {
           SUPABASE_PUBLISHABLE_KEY: !!env.SUPABASE_PUBLISHABLE_KEY,
           SUPABASE_SECRET_KEY: !!env.SUPABASE_SECRET_KEY,
           PIXIV_COOKIE: !!env.PIXIV_COOKIE,
+          PIXIV_REFERER: !!env.PIXIV_REFERER,
+          PIXIV_USER_AGENT: !!env.PIXIV_USER_AGENT,
           timestamp: new Date().toISOString()
         };
         return new Response(JSON.stringify(envVars), {
@@ -238,22 +76,97 @@ export default {
         });
       }
       
-      if (action === 'daily') {
+      if (action === 'test') {
         try {
-          const result = await crawler.getDailyRank();
+          console.log('=== Testing basic functionality ===');
+          console.log('Environment variables check:', {
+            hasSupabaseUrl: !!env.SUPABASE_URL,
+            hasSupabaseKey: !!env.SUPABASE_SECRET_KEY || !!env.SUPABASE_PUBLISHABLE_KEY,
+            hasPixivCookie: !!env.PIXIV_COOKIE,
+            cookieLength: env.PIXIV_COOKIE?.length || 0
+          });
+          
+          // 测试 PixivCrawler 初始化
+          const headersList = getPixivHeaders();
+          const pixivCrawler = new PixivCrawler('0', headersList, null, 'test_' + Date.now(), 0.0, env);
+          
+          // 测试 SupabaseService 初始化
+          const supabase = new SupabaseService(env);
+          
           return new Response(JSON.stringify({ 
-            message: 'Daily ranking crawl completed',
-            result,
-            taskId: 'daily_' + Date.now(),
-            timestamp: new Date().toISOString() 
+            message: 'Basic functionality test passed',
+            crawlerInitialized: true,
+            supabaseInitialized: true,
+            taskId: 'test_' + Date.now(),
+            timestamp: new Date().toISOString(),
+            test: 'success'
           }), {
             status: 200,
             headers: { 'Content-Type': 'application/json' }
           });
         } catch (error) {
+          console.error('Test failed:', error);
+          return new Response(JSON.stringify({ 
+            error: 'Test failed',
+            message: error instanceof Error ? error.message : String(error),
+            taskId: 'test_' + Date.now(),
+            timestamp: new Date().toISOString(),
+            test: 'failed'
+          }), {
+            status: 500,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+      }
+      
+      if (action === 'daily') {
+        try {
+          console.log('=== Starting daily rank crawl ===');
+          const headersList = getPixivHeaders();
+          const pixivCrawler = new PixivCrawler('0', headersList, null, 'daily_' + Date.now(), 0.0, env);
+          const supabase = new SupabaseService(env);
+          
+          const result = await pixivCrawler.getDailyRank();
+          console.log('Daily rank result:', result);
+          
+          if (result && result.error === false && result.body.rankings.length > 0) {
+            const rankings = result.body.rankings;
+            const rankDate = new Date().toISOString().slice(0, 10);
+            await supabase.upsertRankings(rankings, rankDate, 'daily');
+            await supabase.upsertMinimalPics(rankings.map(r => r.pid));
+            
+            return new Response(JSON.stringify({ 
+              message: 'Daily ranking crawl completed and saved to database',
+              result,
+              taskId: 'daily_' + Date.now(),
+              timestamp: new Date().toISOString(),
+              databaseWrite: 'success',
+              rankingsCount: rankings.length
+            }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          } else {
+            return new Response(JSON.stringify({ 
+              message: 'Daily ranking crawl failed - no data extracted',
+              result,
+              taskId: 'daily_' + Date.now(),
+              timestamp: new Date().toISOString(),
+              databaseWrite: 'skipped',
+              error: 'No rankings data to save'
+            }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
+        } catch (error) {
+          console.error('Daily crawl failed:', error);
           return new Response(JSON.stringify({ 
             error: 'Daily crawl failed',
-            message: error instanceof Error ? error.message : String(error)
+            message: error instanceof Error ? error.message : String(error),
+            taskId: 'daily_' + Date.now(),
+            timestamp: new Date().toISOString(),
+            databaseWrite: 'failed'
           }), {
             status: 500,
             headers: { 'Content-Type': 'application/json' }
@@ -263,20 +176,52 @@ export default {
       
       if (action === 'weekly') {
         try {
-          const result = await crawler.getWeeklyRank();
-          return new Response(JSON.stringify({ 
-            message: 'Weekly ranking crawl completed',
-            result,
-            taskId: 'weekly_' + Date.now(),
-            timestamp: new Date().toISOString() 
-          }), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' }
-          });
+          console.log('=== Starting weekly rank crawl ===');
+          const headersList = getPixivHeaders();
+          const pixivCrawler = new PixivCrawler('0', headersList, null, 'weekly_' + Date.now(), 0.0, env);
+          const supabase = new SupabaseService(env);
+          
+          const result = await pixivCrawler.getWeeklyRank();
+          console.log('Weekly rank result:', result);
+          
+          if (result && result.error === false && result.body.rankings.length > 0) {
+            const rankings = result.body.rankings;
+            const rankDate = new Date().toISOString().slice(0, 10);
+            await supabase.upsertRankings(rankings, rankDate, 'weekly');
+            await supabase.upsertMinimalPics(rankings.map(r => r.pid));
+            
+            return new Response(JSON.stringify({ 
+              message: 'Weekly ranking crawl completed and saved to database',
+              result,
+              taskId: 'weekly_' + Date.now(),
+              timestamp: new Date().toISOString(),
+              databaseWrite: 'success',
+              rankingsCount: rankings.length
+            }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          } else {
+            return new Response(JSON.stringify({ 
+              message: 'Weekly ranking crawl failed - no data extracted',
+              result,
+              taskId: 'weekly_' + Date.now(),
+              timestamp: new Date().toISOString(),
+              databaseWrite: 'skipped',
+              error: 'No rankings data to save'
+            }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
         } catch (error) {
+          console.error('Weekly crawl failed:', error);
           return new Response(JSON.stringify({ 
             error: 'Weekly crawl failed',
-            message: error instanceof Error ? error.message : String(error)
+            message: error instanceof Error ? error.message : String(error),
+            taskId: 'weekly_' + Date.now(),
+            timestamp: new Date().toISOString(),
+            databaseWrite: 'failed'
           }), {
             status: 500,
             headers: { 'Content-Type': 'application/json' }
@@ -286,20 +231,52 @@ export default {
       
       if (action === 'monthly') {
         try {
-          const result = await crawler.getMonthlyRank();
-          return new Response(JSON.stringify({ 
-            message: 'Monthly ranking crawl completed',
-            result,
-            taskId: 'monthly_' + Date.now(),
-            timestamp: new Date().toISOString() 
-          }), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' }
-          });
+          console.log('=== Starting monthly rank crawl ===');
+          const headersList = getPixivHeaders();
+          const pixivCrawler = new PixivCrawler('0', headersList, null, 'monthly_' + Date.now(), 0.0, env);
+          const supabase = new SupabaseService(env);
+          
+          const result = await pixivCrawler.getMonthlyRank();
+          console.log('Monthly rank result:', result);
+          
+          if (result && result.error === false && result.body.rankings.length > 0) {
+            const rankings = result.body.rankings;
+            const rankDate = new Date().toISOString().slice(0, 10);
+            await supabase.upsertRankings(rankings, rankDate, 'monthly');
+            await supabase.upsertMinimalPics(rankings.map(r => r.pid));
+            
+            return new Response(JSON.stringify({ 
+              message: 'Monthly ranking crawl completed and saved to database',
+              result,
+              taskId: 'monthly_' + Date.now(),
+              timestamp: new Date().toISOString(),
+              databaseWrite: 'success',
+              rankingsCount: rankings.length
+            }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          } else {
+            return new Response(JSON.stringify({ 
+              message: 'Monthly ranking crawl failed - no data extracted',
+              result,
+              taskId: 'monthly_' + Date.now(),
+              timestamp: new Date().toISOString(),
+              databaseWrite: 'skipped',
+              error: 'No rankings data to save'
+            }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
         } catch (error) {
+          console.error('Monthly crawl failed:', error);
           return new Response(JSON.stringify({ 
             error: 'Monthly crawl failed',
-            message: error instanceof Error ? error.message : String(error)
+            message: error instanceof Error ? error.message : String(error),
+            taskId: 'monthly_' + Date.now(),
+            timestamp: new Date().toISOString(),
+            databaseWrite: 'failed'
           }), {
             status: 500,
             headers: { 'Content-Type': 'application/json' }
@@ -309,21 +286,50 @@ export default {
       
       if (action === 'home') {
         try {
-          const pids = await crawler.getHomeRecommendedPids();
-          return new Response(JSON.stringify({ 
-            message: 'Homepage crawl completed',
-            pids,
-            count: pids.length,
-            taskId: 'home_' + Date.now(),
-            timestamp: new Date().toISOString() 
-          }), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' }
-          });
+          console.log('=== Starting homepage crawl ===');
+          const headersList = getPixivHeaders();
+          const pixivCrawler = new PixivCrawler('0', headersList, null, 'home_' + Date.now(), 0.0, env);
+          const supabase = new SupabaseService(env);
+          
+          const pids = await pixivCrawler.getHomeRecommendedPids();
+          console.log('Homepage PIDs extracted:', pids.length);
+          
+          if (pids.length > 0) {
+            await supabase.upsertMinimalPics(pids);
+            
+            return new Response(JSON.stringify({ 
+              message: 'Homepage crawl completed and saved to database',
+              pids,
+              count: pids.length,
+              taskId: 'home_' + Date.now(),
+              timestamp: new Date().toISOString(),
+              databaseWrite: 'success'
+            }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          } else {
+            return new Response(JSON.stringify({ 
+              message: 'Homepage crawl failed - no PIDs extracted',
+              pids: [],
+              count: 0,
+              taskId: 'home_' + Date.now(),
+              timestamp: new Date().toISOString(),
+              databaseWrite: 'skipped',
+              error: 'No PIDs data to save'
+            }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
         } catch (error) {
+          console.error('Homepage crawl failed:', error);
           return new Response(JSON.stringify({ 
             error: 'Homepage crawl failed',
-            message: error instanceof Error ? error.message : String(error)
+            message: error instanceof Error ? error.message : String(error),
+            taskId: 'home_' + Date.now(),
+            timestamp: new Date().toISOString(),
+            databaseWrite: 'failed'
           }), {
             status: 500,
             headers: { 'Content-Type': 'application/json' }
@@ -333,23 +339,28 @@ export default {
       
       // 默认返回 API 信息
       return new Response(JSON.stringify({
-        message: 'Pixiv Crawler API - Cloudflare Workers (Full Version)',
-        note: 'This CF Worker includes actual crawling functionality!',
+        message: 'Pixiv Crawler API - Cloudflare Workers (Modular Version)',
+        note: 'This CF Worker uses the same architecture as Vercel version!',
         endpoints: [
-          'GET /?action=status - Check API status',
+          'GET /?action=status - Check API status with stats',
           'GET /?action=env-check - Check environment variables',
-          'GET /?action=daily - Crawl daily ranking (REAL)',
-          'GET /?action=weekly - Crawl weekly ranking (REAL)',
-          'GET /?action=monthly - Crawl monthly ranking (REAL)',
-          'GET /?action=home - Crawl homepage recommendations (REAL)',
-          'POST / - Crawl from PID (REAL)'
+          'GET /?action=test - Test basic functionality',
+          'GET /?action=daily - Crawl daily ranking + SAVE TO DB',
+          'GET /?action=weekly - Crawl weekly ranking + SAVE TO DB',
+          'GET /?action=monthly - Crawl monthly ranking + SAVE TO DB',
+          'GET /?action=home - Crawl homepage recommendations + SAVE TO DB',
+          'POST / - Crawl from PID + SAVE TO DB'
         ],
         features: [
           '✅ Real Pixiv crawling',
           '✅ HTML parsing',
           '✅ PID extraction',
           '✅ Ranking generation',
-          '✅ No Node.js dependencies'
+          '✅ Database writing',
+          '✅ Modular architecture',
+          '✅ No Node.js dependencies',
+          '✅ Backup PID extraction methods',
+          '✅ Detailed logging and debugging'
         ],
         timestamp: new Date().toISOString()
       }), {
@@ -371,24 +382,56 @@ export default {
       }
       
       try {
-        const pids = await crawler.getPidsFromOriginPid(pid, targetNum || 100);
-        return new Response(JSON.stringify({ 
-          message: 'Single PID crawl completed',
-          pid,
-          targetNum: targetNum || 100,
-          popularityThreshold: popularityThreshold || 0.0,
-          pids,
-          count: pids.length,
-          taskId: 'single_' + Date.now(),
-          timestamp: new Date().toISOString() 
-        }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' }
-        });
+        console.log('=== Starting single PID crawl ===');
+        const headersList = getPixivHeaders();
+        const pixivCrawler = new PixivCrawler(pid, headersList, null, 'single_' + Date.now(), popularityThreshold || 0.0, env);
+        const supabase = new SupabaseService(env);
+        
+        const pids = await pixivCrawler.getPidsFromOriginPid(pid, targetNum || 100);
+        console.log('Single PID crawl result:', pids.length);
+        
+        if (pids.length > 0) {
+          await supabase.upsertMinimalPics(pids);
+          
+          return new Response(JSON.stringify({ 
+            message: 'Single PID crawl completed and saved to database',
+            pid,
+            targetNum: targetNum || 100,
+            popularityThreshold: popularityThreshold || 0.0,
+            pids,
+            count: pids.length,
+            taskId: 'single_' + Date.now(),
+            timestamp: new Date().toISOString(),
+            databaseWrite: 'success'
+          }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        } else {
+          return new Response(JSON.stringify({ 
+            message: 'Single PID crawl failed - no PIDs extracted',
+            pid,
+            targetNum: targetNum || 100,
+            popularityThreshold: popularityThreshold || 0.0,
+            pids: [],
+            count: 0,
+            taskId: 'single_' + Date.now(),
+            timestamp: new Date().toISOString(),
+            databaseWrite: 'skipped',
+            error: 'No PIDs data to save'
+          }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
       } catch (error) {
+        console.error('PID crawl failed:', error);
         return new Response(JSON.stringify({ 
           error: 'PID crawl failed',
-          message: error instanceof Error ? error.message : String(error)
+          message: error instanceof Error ? error.message : String(error),
+          taskId: 'single_' + Date.now(),
+          timestamp: new Date().toISOString(),
+          databaseWrite: 'failed'
         }), {
           status: 500,
           headers: { 'Content-Type': 'application/json' }

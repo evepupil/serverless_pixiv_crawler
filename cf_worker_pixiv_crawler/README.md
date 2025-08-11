@@ -1,166 +1,166 @@
-# 🚀 Pixiv Crawler - Cloudflare Worker (完整版)
+# Pixiv Crawler - Cloudflare Workers 版本
 
-这是一个**真正有用的** Pixiv 爬虫 Cloudflare Worker，包含完整的爬虫逻辑，不依赖 Node.js 模块！
+## 🚀 **功能特性**
 
-## 🎯 **核心特性**
+### **核心功能**
+- ✅ **真实 Pixiv 爬虫** - 使用纯 Web API 进行爬取
+- ✅ **HTML 解析** - 智能提取 PIDs 和排名信息
+- ✅ **多种 PID 提取方法** - 主方法和备用方法确保成功率
+- ✅ **排行榜爬取** - 日榜、周榜、月榜完整支持
+- ✅ **首页推荐爬取** - 获取首页推荐作品
+- ✅ **单 PID 爬取** - 从指定作品获取相关推荐
+- ✅ **数据库写入** - 直接写入 Supabase 数据库
+- ✅ **模块化架构** - 复用 Vercel 版本的代码结构
 
-### **✅ 完整爬虫功能**
-- **日排行榜爬取**：`/?action=daily` - 爬取 Pixiv 日排行榜
-- **周排行榜爬取**：`/?action=weekly` - 爬取 Pixiv 周排行榜  
-- **月排行榜爬取**：`/?action=monthly` - 爬取 Pixiv 月排行榜
-- **首页推荐爬取**：`/?action=home` - 爬取首页推荐 PIDs
-- **单 PID 爬取**：`POST /` - 从指定 PID 开始爬取相关作品
+### **技术特点**
+- 🌐 **纯 Web API** - 不依赖 Node.js 模块，完全兼容 Cloudflare Workers
+- 🔒 **安全认证** - 支持 Supabase 新版 API Keys
+- 📊 **实时统计** - 提供爬取状态和数据库统计信息
+- 🚫 **智能过滤** - 只在成功爬取数据时写入数据库
+- 📝 **详细日志** - 完整的爬取过程日志记录
 
-### **✅ 技术实现**
-- **纯 Web API**：使用 `fetch()` 替代 `axios`
-- **HTML 解析**：使用正则表达式提取 PIDs
-- **无依赖**：不依赖任何 Node.js 模块
-- **边缘计算**：在 Cloudflare 边缘节点运行
+## 🏗️ **架构设计**
 
-## 🔧 **配置**
-
-### **环境变量**
-```toml
-# wrangler.toml
-[vars]
-SUPABASE_URL = "https://your-project.supabase.co"
-SUPABASE_PUBLISHABLE_KEY = "sb_publishable_..."
-SUPABASE_SECRET_KEY = "sb_secret_..."
-PIXIV_COOKIE = "your_pixiv_cookie"
-PIXIV_REFERER = "https://www.pixiv.net/artworks/123456789"
-PIXIV_USER_AGENT = "Mozilla/5.0..."
+### **目录结构**
+```
+cf_worker_pixiv_crawler/
+├── src/
+│   ├── types/           # 类型定义
+│   ├── services/        # 爬虫服务
+│   ├── database/        # 数据库服务
+│   └── config/          # 配置服务
+├── cf-worker.ts         # 主入口文件
+├── wrangler.toml        # Cloudflare 配置
+└── README.md            # 说明文档
 ```
 
-### **部署命令**
-```bash
-cd cf_worker_pixiv_crawler
-wrangler deploy
-```
+### **模块说明**
+- **`PixivCrawler`** - 核心爬虫逻辑，复用 Vercel 版本架构
+- **`SupabaseService`** - 数据库操作，直接调用 REST API
+- **类型系统** - 完整的 TypeScript 类型定义
+- **配置管理** - 统一的配置和请求头管理
 
-## 🌐 **API 端点**
+## 🔧 **API 端点**
 
 ### **GET 请求**
-- `/?action=status` - 检查服务状态和功能列表
+- `/?action=status` - 检查 API 状态和数据库统计
 - `/?action=env-check` - 检查环境变量配置
-- `/?action=daily` - **爬取日排行榜**（返回 PIDs + 排名）
-- `/?action=weekly` - **爬取周排行榜**（返回 PIDs + 排名）
-- `/?action=monthly` - **爬取月排行榜**（返回 PIDs + 排名）
-- `/?action=home` - **爬取首页推荐**（返回 PIDs 列表）
+- `/?action=daily` - 爬取日排行榜并保存到数据库
+- `/?action=weekly` - 爬取周排行榜并保存到数据库
+- `/?action=monthly` - 爬取月排行榜并保存到数据库
+- `/?action=home` - 爬取首页推荐并保存到数据库
 
 ### **POST 请求**
-- `/` - **从指定 PID 爬取**（JSON body: `{pid, targetNum, popularityThreshold}`）
+- `/` - 从指定 PID 爬取相关作品并保存到数据库
 
-## 📊 **返回数据格式**
+## 📊 **响应格式**
 
-### **排行榜爬取结果**
+### **成功响应示例**
 ```json
 {
-  "message": "Daily ranking crawl completed",
+  "message": "Monthly ranking crawl completed and saved to database",
   "result": {
     "body": {
       "rankings": [
-        {
-          "pid": "123456789",
-          "rank": 1,
-          "crawl_time": "2024-01-01T00:00:00.000Z"
-        }
+        {"pid": "123456", "rank": 1, "crawl_time": "2025-08-11T17:11:11.050Z"}
       ]
     },
     "error": false
   },
-  "taskId": "daily_1704067200000",
-  "timestamp": "2024-01-01T00:00:00.000Z"
+  "taskId": "monthly_1754932271050",
+  "timestamp": "2025-08-11T17:11:11.050Z",
+  "databaseWrite": "success",
+  "rankingsCount": 1
 }
 ```
 
-### **首页爬取结果**
+### **失败响应示例**
 ```json
 {
-  "message": "Homepage crawl completed",
-  "pids": ["123456789", "987654321"],
-  "count": 2,
-  "taskId": "home_1704067200000",
-  "timestamp": "2024-01-01T00:00:00.000Z"
+  "message": "Monthly ranking crawl failed - no data extracted",
+  "result": {"body": {"rankings": []}, "error": true},
+  "taskId": "monthly_1754932271050",
+  "timestamp": "2025-08-11T17:11:11.050Z",
+  "databaseWrite": "skipped",
+  "error": "No rankings data to save"
 }
 ```
 
-## 🚀 **技术优势**
+## ⚙️ **环境变量**
 
-### **1. 真正的爬虫功能**
-- ✅ 实际访问 Pixiv 网站
-- ✅ 解析 HTML 内容
-- ✅ 提取 PIDs 和排名信息
-- ✅ 生成结构化数据
+### **必需变量**
+- `SUPABASE_URL` - Supabase 项目 URL
+- `SUPABASE_SECRET_KEY` - Supabase 密钥（优先使用）
+- `SUPABASE_PUBLISHABLE_KEY` - Supabase 公开密钥（备用）
+- `PIXIV_COOKIE` - Pixiv 网站 Cookie
 
-### **2. 边缘计算优势**
-- ⚡ **极快响应**：全球边缘节点部署
-- 💰 **成本极低**：按请求计费，免费额度充足
-- 🌍 **全球覆盖**：自动选择最近的节点
-- 🔒 **安全隔离**：每个请求独立执行
+### **可选变量**
+- `PIXIV_REFERER` - Pixiv 请求引用页
+- `PIXIV_USER_AGENT` - 自定义 User-Agent
 
-### **3. 无依赖架构**
-- 🚫 不使用 `fs`、`path`、`http` 等 Node.js 模块
-- ✅ 使用标准 Web API：`fetch`、`TextEncoder`、`RegExp`
-- 🔧 完全兼容 Cloudflare Workers 环境
+## 🚀 **部署说明**
 
-## 🔄 **与 Vercel 版本对比**
-
-| 功能 | CF Worker | Vercel |
-|------|-----------|---------|
-| 爬虫逻辑 | ✅ **完整** | ✅ 完整 |
-| 数据库操作 | ❌ 无（可扩展） | ✅ 完整 |
-| API 端点 | ✅ **完整** | ✅ 完整 |
-| 部署速度 | ⚡ **极快** | 🚀 快 |
-| 成本 | 💰 **极低** | 💰 低 |
-| 全球覆盖 | 🌍 **自动** | 🌍 手动 |
-
-## 🎯 **使用场景**
-
-### **1. 独立爬虫服务**
-- 作为轻量级爬虫 API
-- 快速获取 Pixiv 数据
-- 无需维护服务器
-
-### **2. 定时任务触发器**
-- 配合 CRON 定时爬取
-- 自动更新排行榜数据
-- 监控 Pixiv 变化
-
-### **3. 数据收集工具**
-- 批量收集 PIDs
-- 生成排行榜数据
-- 为其他服务提供数据源
-
-## 🚀 **扩展可能性**
-
-### **1. 添加数据库支持**
-```typescript
-// 可以集成 Supabase 客户端
-import { createClient } from '@supabase/supabase-js';
+### **1. 安装依赖**
+```bash
+npm install
 ```
 
-### **2. 添加缓存机制**
-```typescript
-// 使用 Cloudflare KV 存储
-const cache = env.MY_KV.get(key);
+### **2. 配置环境变量**
+在 `wrangler.toml` 中配置环境变量，或使用 `wrangler secret` 命令
+
+### **3. 部署到 Cloudflare**
+```bash
+wrangler deploy
 ```
 
-### **3. 添加队列处理**
-```typescript
-// 使用 Cloudflare Queues
-await env.MY_QUEUE.send(data);
-```
+## 🔍 **调试和监控**
 
-## 📞 **技术支持**
+### **日志查看**
+- 所有爬取过程都有详细的 console.log 输出
+- 可在 Cloudflare Workers 控制台查看实时日志
 
-这个 CF Worker 现在包含：
-- ✅ **完整的爬虫逻辑**
-- ✅ **真实的 Pixiv 数据获取**
-- ✅ **结构化的返回数据**
-- ✅ **错误处理和重试机制**
+### **状态检查**
+- 使用 `/?action=status` 检查 API 状态
+- 使用 `/?action=env-check` 验证环境配置
 
-**不再是一个简单的框架，而是真正可用的爬虫服务！** 🎉
+### **数据库验证**
+- 响应中的 `databaseWrite` 字段显示数据库写入状态
+- `rankingsCount` 显示实际爬取的数据量
+
+## 🆚 **与 Vercel 版本对比**
+
+| 特性 | Vercel 版本 | CF Workers 版本 |
+|------|-------------|-----------------|
+| 架构 | 单体文件 | 模块化分离 |
+| 依赖 | Node.js 模块 | 纯 Web API |
+| 部署 | Vercel | Cloudflare Workers |
+| 前端 | HTML 界面 | API 接口 |
+| 功能 | 完整功能 | 核心爬虫功能 |
+| 数据库 | Supabase 客户端 | 直接 REST API |
+
+## 🐛 **故障排除**
+
+### **常见问题**
+1. **爬取失败但显示成功** - 检查 `databaseWrite` 字段
+2. **没有数据写入** - 查看 `rankingsCount` 是否为 0
+3. **环境变量错误** - 使用 `/?action=env-check` 验证
+
+### **调试步骤**
+1. 检查 Cloudflare Workers 日志
+2. 验证环境变量配置
+3. 测试单个 API 端点
+4. 检查 Supabase 数据库权限
+
+## 📝 **更新日志**
+
+### **v2.0.0** - 模块化重构
+- ✅ 重构为模块化架构
+- ✅ 复用 Vercel 版本代码结构
+- ✅ 改进 PID 提取方法
+- ✅ 添加备用提取策略
+- ✅ 智能数据库写入控制
+- ✅ 详细的响应状态信息
 
 ---
 
-**现在你可以部署这个 CF Worker 并获得真正的爬虫功能！** 🚀 
+**注意**: 此版本完全兼容 Cloudflare Workers 环境，使用纯 Web API 实现，确保在 CF Workers 中稳定运行。 
