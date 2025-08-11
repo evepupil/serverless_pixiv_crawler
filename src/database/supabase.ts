@@ -4,15 +4,15 @@ import { DatabasePic, PixivDailyRankItem } from '../types';
 export class SupabaseService {
   private client: SupabaseClient;
 
-  constructor() {
-    const supabaseUrl = process.env.SUPABASE_URL;
-    const supabaseKey = process.env.SUPABASE_ANON_KEY;
+  constructor(supabaseUrl?: string, supabaseKey?: string) {
+    const url = supabaseUrl || (typeof process !== 'undefined' ? process.env.SUPABASE_URL : undefined);
+    const key = supabaseKey || (typeof process !== 'undefined' ? process.env.SUPABASE_ANON_KEY : undefined);
 
-    if (!supabaseUrl || !supabaseKey) {
+    if (!url || !key) {
       throw new Error('Missing Supabase environment variables');
     }
 
-    this.client = createClient(supabaseUrl, supabaseKey);
+    this.client = createClient(url, key);
   }
 
   // Pic表操作

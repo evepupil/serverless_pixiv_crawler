@@ -1,0 +1,21 @@
+name = "cf-pixiv-api-worker"
+main = "cf-worker.ts"
+compatibility_date = "2024-11-21"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+# 必填：数据库与 Pixiv 请求所需环境变量
+SUPABASE_URL = "https://cmlqvznwrauqnxtqnabw.supabase.co"
+SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNtbHF2em53cmF1cW54dHFuYWJ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQxMTYwNTQsImV4cCI6MjA2OTY5MjA1NH0.vrE5XyNk58e2ElgyVf13sQZuWL9KztIh_zjhcAj4UFI"
+PIXIV_COOKIE = "first_visit_datetime_pc=2025-07-06%2017%3A38%3A43; yuid_b=MDMTeBc; p_ab_id=7; p_ab_id_2=2; p_ab_d_id=1777342313; privacy_policy_agreement=7; _ga_MZ1NL4PHH0=GS2.1.s1751791138$o1$g1$t1751791235$j60$l0$h0; cc1=2025-08-11%2001%3A54%3A23; __utma=235335808.2099849696.1751791124.1754844865.1754844865.1; __utmc=235335808; __utmz=235335808.1754844865.1.1.utmcsr=(direct)|utmccn=(direct)|utmcmd=(none); __utmt=1; cf_clearance=5J4k4IxWkUM0WLJ64lxiGEsKzjGIb8TJZHPxSQWBOhI-1754844865-1.2.1.1-ftsghi_6kmq1BCfKBK68jIQaGFa_aZvtLCdoAqIcR1vWexcrlNTpX7BOXPnFOtY6KTj8x8NwaoqTv5npizuinDe7EvRnFMCi9M5WEv2AqyINwNR9xDGMRyuDaLZP0S8.jnMtgtMuSbrR2L0vFNXFKzCEyd46DzLD_IQ6bCOC_mt4qrm34QpWpW68C42uTT7QYmjPyeyXmukU25t.nzkZWi2ns397R.QcqRtkix3p3mY; _gid=GA1.2.1354680023.1754844866; _gat_UA-1830249-3=1; PHPSESSID=110366788_we9ohYxTI6HES0EDEPvf3bJYiKBciUY3; device_token=f6af029b9fc8928b753b495495acea61; c_type=25; privacy_policy_notification=0; a_type=0; b_type=1; _ga=GA1.1.2099849696.1751791124; __utmv=235335808.|2=login%20ever=no=1^3=plan=normal=1^9=p_ab_id=7=1^10=p_ab_id_2=2=1; cto_bundle=UoRhpl9seiUyRm9MJTJGZEpBdjh0M0JWJTJGOHhXd1I0STlXQ3hiY0I4ZkNSdVZPOEM5NVpqUlpPNkU4RzhQM3FDWjM5JTJGZjhuTTVVeDd2aWxNY1RXU3laSSUyQkltcEN4OVR4d01RMUtYamNwcXY5JTJGeHI1N1FaTTVZVUUyZkZobHY0dVp3enRsZEhkT3A2Q2FiV0tEaVhTUkxCWkdWcXY2U3clM0QlM0Q; FCNEC=%5B%5B%22AKsRol-q9ISXY1aIxkzkOAVPmnCg108UDsRy38cQWaXEB9MtWxdxoYtr5hJdXL6ECTbWmpclD9Za2NKmSlG6CS2JcivGxow-wu1psqxh1xqZvWR6qR3FbgBQdRbwgLHRh4zvuqhXJAPoGrCpLdQCaSfwqP1lxdmekw%3D%3D%22%5D%5D; __cf_bm=C2kQv7etOeEgyVxdNNiqeXNLXHsonBZynCq0ABdZpqE-1754844880-1.0.1.1-XhnFClNqTIuUiOKPockoLvh42BVg9jPf6z3kWdb2JgfDr3aptCcMvuIYXOKroobTzEa6s0v0P1.Betq6rAIs9KagWiPm3OPVNsufqYGjlR8jPRRBBI.8hwb5lKDMUDxr; _cfuvid=O17HwWgsuq7QyVdvtQb2VMN_ZaDDyCE584tiUx.wXOQ-1754844880121-0.0.1.1-604800000; AMZN-Token=v2FweIBHTXMvdTlFOThjdVJYQVRpdTE1enBTNnRzQmc1d2JoZHVDWnJPaHVydUYva0kwSHBWK3A4bEczZDZkWFkxSHRMelgyQy9ZaWxYdlpIaWhFUnN2cVhHazEveHVVdU5zZ1RIRzJIamk5RVB4N3E1SDl5YmhVc1VuS1dyelROT2s1aGJrdgFiaXZ4IDc3KzlVdSsvdlRYdnY3MXQ3Nys5NzcrOTc3KzlGUT09/w==; __utmb=235335808.4.10.1754844865; _ga_75BBYNYN9J=GS2.1.s1754844865$o2$g1$t1754844892$j33$l0$h0; _gcl_au=1.1.1200965593.1754844892"
+
+# 可选：自定义 Referer 与 Accept-Language
+PIXIV_REFERER = "https://www.pixiv.net/artworks/112388359"
+PIXIV_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:131.0) Gecko/20100101 Firefox/131.0"
+
+# 可选：爬虫行为参数（与 config 中保持一致）
+MAX_ILLUSTRATIONS = "1000"
+POPULARITY_THRESHOLD = "0.22"
+REQUEST_DELAY_MIN = "0"
+REQUEST_DELAY_MAX = "1000"
+MAX_REQUESTS_PER_HEADER = "300"

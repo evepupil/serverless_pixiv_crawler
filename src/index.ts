@@ -1,3 +1,4 @@
+// 适配 Vercel 与 Cloudflare Workers 环境类型
 import { VercelRequest, VercelResponse } from '@vercel/node';
 import { PixivCrawler } from './services/pixiv-crawler';
 import { getPixivHeaders } from './config';
@@ -344,6 +345,7 @@ async function batchCrawl(pids: string[], targetNum: number = 1000, popularityTh
   }
 }
 
+// 导出 Vercel 处理器
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const { method } = req;
@@ -645,3 +647,33 @@ if (require.main === module) {
     });
   }
 }
+
+// Cloudflare Workers 适配（可选导出）
+export const cfHandler = {
+  async fetch(request: Request, env: any): Promise<Response> {
+    // 将 CF Request 适配为 Vercel 风格请求
+    const url = new URL(request.url);
+    const query: Record<string, string> = {};
+    url.searchParams.forEach((v, k) => (query[k] = v));
+
+    const bodyText = request.method === 'POST' ? await request.text() : '';
+    let body: any = {};
+    try { body = bodyText ? JSON.parse(bodyText) : {}; } catch {}
+
+    const vercelReq: any = { method: request.method, query, body };
+
+    const headers: Record<string, string> = {};
+    let statusCode = 200;
+    let responseBody: any = '';
+
+    const vercelRes: any = {
+      setHeader: (k: string, v: string) => { headers[k] = v; },
+      status: (code: number) => { statusCode = code; return vercelRes; },
+      json: (data: any) => { headers['Content-Type'] = 'application/json'; responseBody = JSON.stringify(data); },
+      send: (data: any) => { responseBody = typeof data === 'string' ? data : String(data); }
+    };
+
+    await handler(vercelReq, vercelRes);
+    return new Response(responseBody, { status: statusCode, headers });
+  }
+};
