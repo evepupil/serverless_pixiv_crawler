@@ -420,9 +420,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           if (pids && pids.length > 0) {
             const supabase = new SupabaseService();
             await supabase.upsertMinimalPics(pids);
-            res.status(200).json({ message: '首页推荐已入库', count: pids.length, taskId });
+            res.status(200).json({ message: '首页推荐已入库', count: pids.length, pids, taskId });
           } else {
-            res.status(200).json({ message: '未提取到PID', count: 0, taskId });
+            res.status(200).json({ message: '未提取到PID', count: 0, pids: [], taskId });
           }
         } else if (action === 'daily' || action === 'weekly' || action === 'monthly') {
           // 触发按类型排行榜抓取
