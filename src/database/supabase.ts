@@ -44,9 +44,10 @@ export class SupabaseService {
   }
 
   async updatePicDownload(pid: string, path: string, imgUrl: string): Promise<void> {
+    const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
     const { error } = await this.client
       .from('pic')
-      .update({ image_path: path, image_url: imgUrl })
+      .update({ image_path: path, image_url: imgUrl, download_time: now })
       .eq('pid', pid);
 
     if (error) {

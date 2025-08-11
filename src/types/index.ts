@@ -67,7 +67,7 @@ export interface IllustData {
 
 export interface DatabasePic {
   pid: string;
-  download_time: string;
+  download_time?: string;
   tag: string;
   good: number;
   star: number;

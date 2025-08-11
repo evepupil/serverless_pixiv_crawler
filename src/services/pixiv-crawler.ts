@@ -390,12 +390,10 @@ export class PixivCrawler {
             this.logManager.addLog(`view_json:${JSON.stringify(viewJson)}`, 'info', this.taskId);
             this.logManager.addLog(`tag:${JSON.stringify(illustTags)}`, 'info', this.taskId);
 
-            const now = formatDateTime(new Date());
             const tagsString = illustTags.join(', ');
 
             const picData: DatabasePic = {
               pid: firstPid,
-              download_time: now,
               tag: tagsString,
               good: viewJson.like,
               star: viewJson.bookmark,
