@@ -484,16 +484,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           return;
         }
 
-        // 验证热度阈值参数
-        let threshold = 0.22; // 默认值
-        if (popularityThreshold !== undefined) {
-          const parsedThreshold = parseFloat(popularityThreshold);
-          if (isNaN(parsedThreshold) || parsedThreshold < 0.01 || parsedThreshold > 1.0) {
-            res.status(400).json({ error: '热度阈值必须在 0.01 - 1.0 之间' });
-            return;
-          }
-          threshold = parsedThreshold;
-        }
+        // 取消热度阈值强校验，允许自由传入；默认值仅用于兼容旧客户端
+        let threshold = (popularityThreshold !== undefined) ? parseFloat(popularityThreshold) : 0.0;
+        if (Number.isNaN(threshold)) threshold = 0.0;
 
         // 检查环境变量配置
         if (!checkEnvironmentVariables()) {

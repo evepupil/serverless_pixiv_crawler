@@ -992,21 +992,7 @@
                                 • 热度值范围通常在 0.01 - 1.0 之间
                             </p>
                         </div>
-                        <div class="info-section">
-                            <h4>🎯 热度阈值配置</h4>
-                            <div class="form-group">
-                                <label for="popularity-threshold">热度阈值 (0.01 - 1.0)</label>
-                                <input type="number" id="popularity-threshold" value="0.22" min="0.01" max="1.0" step="0.01">
-                                <small>只有热度超过此阈值的插画才会被保存到数据库</small>
-                            </div>
-                            <div class="threshold-examples">
-                                <strong>参考值：</strong>
-                                <span class="threshold-tag">0.15 (宽松)</span>
-                                <span class="threshold-tag">0.22 (默认)</span>
-                                <span class="threshold-tag">0.30 (严格)</span>
-                                <span class="threshold-tag">0.50 (极严格)</span>
-                            </div>
-                        </div>
+                        
                     </div>
                 </div>
 
@@ -1082,7 +1068,6 @@
         document.addEventListener('DOMContentLoaded', function() {
             refreshStatus();
             addLog('页面加载完成，系统就绪', 'info');
-            initThresholdTags();
         });
 
         /**
@@ -1117,9 +1102,8 @@
             thresholdTags.forEach(tag => {
                 tag.addEventListener('click', function() {
                     const text = this.textContent;
-                    const value = text.match(/\d+\.\d+/)[0]; // 提取数字部分
-                    document.getElementById('popularity-threshold').value = value;
-                    showAlert(`热度阈值已设置为 ${value}`, 'success');
+                    // 阈值输入已移除
+                    showAlert('阈值设置功能已移除，爬取阶段不再限制热度', 'success');
                 });
             });
         }
@@ -1387,17 +1371,14 @@
         async function startSingleCrawl() {
             const pid = document.getElementById('single-pid').value.trim();
             const targetNum = parseInt(document.getElementById('single-target').value);
-            const popularityThreshold = parseFloat(document.getElementById('popularity-threshold').value);
+            // 阈值输入已移除
 
             if (!pid) {
                 showAlert('请输入有效的Pixiv插画ID', 'error');
                 return;
             }
 
-            if (isNaN(popularityThreshold) || popularityThreshold < 0.01 || popularityThreshold > 1.0) {
-                showAlert('请输入有效的热度阈值 (0.01 - 1.0)', 'error');
-                return;
-            }
+            // 无需校验热度阈值
 
             if (isRunning) {
                 showAlert('爬虫正在运行中，请等待完成', 'warning');
@@ -1410,7 +1391,7 @@
                 btn.disabled = true;
                 btn.innerHTML = '<span class="loading"></span>爬取中...';
 
-                addLog(`开始爬取PID: ${pid}，目标数量: ${targetNum}，热度阈值: ${popularityThreshold}`, 'info');
+                addLog(`开始爬取PID: ${pid}，目标数量: ${targetNum}`, 'info');
                 showProgress();
 
                 const response = await fetch(API_BASE, {
@@ -1420,8 +1401,7 @@
                     },
                     body: JSON.stringify({
                         pid: pid,
-                        targetNum: targetNum,
-                        popularityThreshold: popularityThreshold
+                        targetNum: targetNum
                     })
                 });
 
@@ -1454,7 +1434,7 @@
         async function startBatchCrawl() {
             const pidsText = document.getElementById('batch-pids').value.trim();
             const targetNum = parseInt(document.getElementById('batch-target').value);
-            const popularityThreshold = parseFloat(document.getElementById('popularity-threshold').value);
+            // 阈值输入已移除
 
             if (!pidsText) {
                 showAlert('请输入有效的Pixiv插画ID列表', 'error');
@@ -1468,10 +1448,7 @@
                 return;
             }
 
-            if (isNaN(popularityThreshold) || popularityThreshold < 0.01 || popularityThreshold > 1.0) {
-                showAlert('请输入有效的热度阈值 (0.01 - 1.0)', 'error');
-                return;
-            }
+            // 无需校验热度阈值
 
             if (isRunning) {
                 showAlert('爬虫正在运行中，请等待完成', 'warning');
@@ -1484,7 +1461,7 @@
                 btn.disabled = true;
                 btn.innerHTML = '<span class="loading"></span>批量爬取中...';
 
-                addLog(`开始批量爬取，共${pids.length}个PID，目标数量: ${targetNum}，热度阈值: ${popularityThreshold}`, 'info');
+                addLog(`开始批量爬取，共${pids.length}个PID，目标数量: ${targetNum}`, 'info');
                 showProgress();
 
                 const response = await fetch(API_BASE, {
@@ -1494,8 +1471,7 @@
                     },
                     body: JSON.stringify({
                         pids: pids,
-                        targetNum: targetNum,
-                        popularityThreshold: popularityThreshold
+                        targetNum: targetNum
                     })
                 });
 

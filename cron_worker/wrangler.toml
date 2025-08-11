@@ -19,5 +19,5 @@ WORKER_API_BASES = "https://pixiv.chaosyn.com/api"
 
 # 10分钟任务用：目标数量和热度阈值（可选）
 TEN_MIN_TARGET_NUM = "100"
-TEN_MIN_THRESHOLD = "0.22"
+TEN_MIN_THRESHOLD = "0"
 

@@ -384,31 +384,29 @@ export class PixivCrawler {
           const popularity = getIllustPopularity(info);
           const roundedPopularity = Math.round(popularity * 100) / 100;
 
-          if (roundedPopularity >= this.popularityThreshold) {
-            const viewJson = getIllustData(info);
-            if (viewJson) {
-              const illustTags = getIllustTags(info);
-              this.logManager.addLog(`view_json:${JSON.stringify(viewJson)}`, 'info', this.taskId);
-              this.logManager.addLog(`tag:${JSON.stringify(illustTags)}`, 'info', this.taskId);
+          const viewJson = getIllustData(info);
+          if (viewJson) {
+            const illustTags = getIllustTags(info);
+            this.logManager.addLog(`view_json:${JSON.stringify(viewJson)}`, 'info', this.taskId);
+            this.logManager.addLog(`tag:${JSON.stringify(illustTags)}`, 'info', this.taskId);
 
-              const now = formatDateTime(new Date());
-              const tagsString = illustTags.join(', ');
+            const now = formatDateTime(new Date());
+            const tagsString = illustTags.join(', ');
 
-              const picData: DatabasePic = {
-                pid: firstPid,
-                download_time: now,
-                tag: tagsString,
-                good: viewJson.like,
-                star: viewJson.bookmark,
-                view: viewJson.view,
-                image_path: '',
-                image_url: '',
-                popularity: roundedPopularity
-              };
+            const picData: DatabasePic = {
+              pid: firstPid,
+              download_time: now,
+              tag: tagsString,
+              good: viewJson.like,
+              star: viewJson.bookmark,
+              view: viewJson.view,
+              image_path: '',
+              image_url: '',
+              popularity: roundedPopularity
+            };
 
-              await this.supabase.createPic(picData);
-              popularityCount++;
-            }
+            await this.supabase.createPic(picData);
+            popularityCount++;
           }
         }
       } catch (error) {
