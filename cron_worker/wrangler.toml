@@ -1,0 +1,23 @@
+name = "pixiv-cron-worker"
+main = "src/index.ts"
+compatibility_date = "2024-11-21"
+
+[triggers]
+crons = [
+  "*/10 * * * *",   # 每10分钟
+  "0 1 * * *",      # 每天 01:00
+  "0 1 * * 1",      # 每周一 01:00
+  "0 1 1 * *"       # 每月1号 01:00
+]
+
+[vars]
+# 你的爬虫 API 基础地址（不要以斜杠结尾），例如：https://pixiv.chaosyn.com/api 或 http://localhost:3000
+API_BASE = "https://pixiv.chaosyn.com/api"
+
+# 10分钟任务用：可选的 PID 列表（逗号分隔）。留空则跳过 10 分钟任务。
+TEN_MIN_PIDS = ""
+
+# 10分钟任务用：目标数量和热度阈值（可选）
+TEN_MIN_TARGET_NUM = "100"
+TEN_MIN_THRESHOLD = "0.22"
+
