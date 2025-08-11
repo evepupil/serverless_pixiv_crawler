@@ -35,8 +35,17 @@ export class PixivCrawler {
   private httpClient: AxiosInstance;
   private logManager: ILogManager;
   private taskId: string;
+  private popularityThreshold: number;
 
-  constructor(pid: string, headersList: PixivHeaders[], logManager: ILogManager, taskId: string) {
+  /**
+   * PixivCrawler构造函数
+   * @param pid 起始插画ID
+   * @param headersList Pixiv请求头列表
+   * @param logManager 日志管理器
+   * @param taskId 任务ID
+   * @param popularityThreshold 热度阈值，默认为0.22
+   */
+  constructor(pid: string, headersList: PixivHeaders[], logManager: ILogManager, taskId: string, popularityThreshold: number = 0.22) {
     this.initPid = pid;
     this.headers = headersList[0];
     this.headersList = headersList;
@@ -44,6 +53,7 @@ export class PixivCrawler {
     this.supabase = new SupabaseService();
     this.logManager = logManager;
     this.taskId = taskId;
+    this.popularityThreshold = popularityThreshold;
     
     this.httpClient = axios.create({
       timeout: 30000,
@@ -237,7 +247,7 @@ export class PixivCrawler {
           const popularity = getIllustPopularity(info);
           const roundedPopularity = Math.round(popularity * 100) / 100;
 
-          if (roundedPopularity >= CRAWLER_CONFIG.POPULARITY_THRESHOLD) {
+          if (roundedPopularity >= this.popularityThreshold) {
             const viewJson = getIllustData(info);
             if (viewJson) {
               const illustTags = getIllustTags(info);
@@ -275,4 +285,4 @@ export class PixivCrawler {
     
     this.logManager.addLog(`处理完成，耗时：${elapsedTime.toFixed(2)}秒，本次新增${popularityCount}张图片，写入数据库失败图片${failedCount}张，热门图片比例为${popularityCount / firstPids.length}`, 'info', this.taskId);
   }
-} 
+}

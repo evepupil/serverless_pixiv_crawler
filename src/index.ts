@@ -205,14 +205,14 @@ async function safeDatabaseOperation<T>(operation: () => Promise<T>, defaultValu
 }
 
 // 主爬虫函数
-async function runCrawler(pid: string, targetNum: number = 1000): Promise<void> {
+async function runCrawler(pid: string, targetNum: number = 1000, popularityThreshold: number = 0.22): Promise<void> {
   const taskId = 'single_' + pid + '_' + Date.now();
   
   try {
-    logManager.addLog('开始爬取Pixiv插画，起始PID: ' + pid + '，目标数量: ' + targetNum, 'info', taskId);
+    logManager.addLog(`开始爬取Pixiv插画，起始PID: ${pid}，目标数量: ${targetNum}，热度阈值: ${popularityThreshold}`, 'info', taskId);
     
     const headersList = getPixivHeaders();
-    const pixivCrawler = new PixivCrawler(pid, headersList, logManager, taskId);
+    const pixivCrawler = new PixivCrawler(pid, headersList, logManager, taskId, popularityThreshold);
     
     logManager.addLog('爬虫初始化完成，使用 ' + headersList.length + ' 个请求头', 'info', taskId);
     await pixivCrawler.getPidsFromOriginPid(pid, targetNum);
@@ -226,17 +226,17 @@ async function runCrawler(pid: string, targetNum: number = 1000): Promise<void> 
 }
 
 // 批量爬虫函数
-async function batchCrawl(pids: string[], targetNum: number = 1000): Promise<void> {
+async function batchCrawl(pids: string[], targetNum: number = 1000, popularityThreshold: number = 0.22): Promise<void> {
   const taskId = 'batch_' + Date.now();
   
   try {
-    logManager.addLog('开始批量爬取，共' + pids.length + '个PID，目标数量: ' + targetNum, 'info', taskId);
+    logManager.addLog(`开始批量爬取，共${pids.length}个PID，目标数量: ${targetNum}，热度阈值: ${popularityThreshold}`, 'info', taskId);
     
     for (let i = 0; i < pids.length; i++) {
       const pid = pids[i];
       try {
         logManager.addLog('处理第 ' + (i + 1) + '/' + pids.length + ' 个PID: ' + pid, 'info', taskId);
-        await runCrawler(pid, targetNum);
+        await runCrawler(pid, targetNum, popularityThreshold);
         logManager.addLog('PID ' + pid + ' 爬取完成', 'success', taskId);
       } catch (error) {
         logManager.addLog('PID ' + pid + ' 爬取失败: ' + (error instanceof Error ? error.message : String(error)), 'error', taskId);
@@ -359,11 +359,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       case 'POST':
         // 启动爬虫任务
-        const { pid, pids, targetNum = 1000 } = req.body;
+        const { pid, pids, targetNum = 1000, popularityThreshold } = req.body;
 
         if (!pid && !pids) {
           res.status(400).json({ error: '缺少必要的参数: pid 或 pids' });
           return;
+        }
+
+        // 验证热度阈值参数
+        let threshold = 0.22; // 默认值
+        if (popularityThreshold !== undefined) {
+          const parsedThreshold = parseFloat(popularityThreshold);
+          if (isNaN(parsedThreshold) || parsedThreshold < 0.01 || parsedThreshold > 1.0) {
+            res.status(400).json({ error: '热度阈值必须在 0.01 - 1.0 之间' });
+            return;
+          }
+          threshold = parsedThreshold;
         }
 
         // 检查环境变量配置
@@ -381,37 +392,39 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (pid) {
           // 单个PID爬取
           const taskId = 'single_' + pid + '_' + Date.now();
-          logManager.addLog('收到单个PID爬取请求: ' + pid + '，目标数量: ' + targetNum, 'info', taskId);
+          logManager.addLog(`收到单个PID爬取请求: ${pid}，目标数量: ${targetNum}，热度阈值: ${threshold}`, 'info', taskId);
           
           res.status(200).json({ 
             message: '爬虫任务已启动', 
             pid, 
             targetNum,
+            popularityThreshold: threshold,
             taskId,
             timestamp: new Date().toISOString()
           });
           
           // 异步执行爬虫任务，添加更好的错误处理
-          runCrawler(pid, targetNum).catch(error => {
+          runCrawler(pid, targetNum, threshold).catch(error => {
             logManager.addLog('爬虫任务执行失败: ' + (error instanceof Error ? error.message : String(error)), 'error', taskId);
             console.error('爬虫任务执行失败:', error);
           });
         } else if (pids && Array.isArray(pids)) {
           // 批量PID爬取
           const taskId = 'batch_' + Date.now();
-          logManager.addLog('收到批量PID爬取请求，共' + pids.length + '个PID，目标数量: ' + targetNum, 'info', taskId);
+          logManager.addLog(`收到批量PID爬取请求，共${pids.length}个PID，目标数量: ${targetNum}，热度阈值: ${threshold}`, 'info', taskId);
           
           res.status(200).json({ 
             message: '批量爬虫任务已启动', 
             pids, 
             targetNum,
+            popularityThreshold: threshold,
             count: pids.length,
             taskId,
             timestamp: new Date().toISOString()
           });
           
           // 异步执行批量爬虫任务，添加更好的错误处理
-          batchCrawl(pids, targetNum).catch(error => {
+          batchCrawl(pids, targetNum, threshold).catch(error => {
             logManager.addLog('批量爬虫任务执行失败: ' + (error instanceof Error ? error.message : String(error)), 'error', taskId);
             console.error('批量爬虫任务执行失败:', error);
           });

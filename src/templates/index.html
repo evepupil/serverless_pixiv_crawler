@@ -263,6 +263,82 @@
             to { transform: rotate(360deg); }
         }
 
+        /* 热度配置样式 */
+        .popularity-info {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 15px;
+        }
+
+        .info-section {
+            margin-bottom: 20px;
+        }
+
+        .info-section:last-child {
+            margin-bottom: 0;
+        }
+
+        .info-section h4 {
+            color: #495057;
+            margin-bottom: 10px;
+            font-size: 1.1rem;
+        }
+
+        .formula {
+            background: #e9ecef;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 10px 0;
+            text-align: center;
+        }
+
+        .formula code {
+            background: none;
+            color: #495057;
+            font-size: 1.1rem;
+            font-weight: 600;
+            padding: 0;
+        }
+
+        .formula-note {
+            color: #6c757d;
+            font-size: 0.9rem;
+            line-height: 1.5;
+            margin: 10px 0 0 0;
+        }
+
+        .threshold-examples {
+            margin-top: 15px;
+            padding: 10px;
+            background: white;
+            border-radius: 8px;
+            border: 1px solid #dee2e6;
+        }
+
+        .threshold-tag {
+            display: inline-block;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 15px;
+            font-size: 0.8rem;
+            margin: 2px 5px 2px 0;
+            cursor: pointer;
+            transition: transform 0.2s ease;
+        }
+
+        .threshold-tag:hover {
+            transform: translateY(-1px);
+        }
+
+        .form-group small {
+            display: block;
+            color: #6c757d;
+            font-size: 0.85rem;
+            margin-top: 5px;
+        }
+
         @media (max-width: 768px) {
             .control-panel {
                 grid-template-columns: 1fr;
@@ -279,6 +355,19 @@
             
             .main-content {
                 padding: 20px;
+            }
+
+            .popularity-info {
+                padding: 15px;
+            }
+
+            .formula code {
+                font-size: 1rem;
+            }
+
+            .threshold-tag {
+                font-size: 0.75rem;
+                padding: 3px 6px;
             }
         }
     </style>
@@ -324,6 +413,39 @@
 
             <!-- 控制面板 -->
             <div class="control-panel">
+                <!-- 热度配置说明 -->
+                <div class="card">
+                    <h3>📊 热度计算说明</h3>
+                    <div class="popularity-info">
+                        <div class="info-section">
+                            <h4>🧮 热度计算公式</h4>
+                            <div class="formula">
+                                <code>热度 = (点赞数 + 收藏数 × 2) / 浏览量</code>
+                            </div>
+                            <p class="formula-note">
+                                • 收藏数权重更高（×2），因为收藏比点赞更有价值<br>
+                                • 浏览量低于5000时，使用5000作为分母避免热度过高<br>
+                                • 热度值范围通常在 0.01 - 1.0 之间
+                            </p>
+                        </div>
+                        <div class="info-section">
+                            <h4>🎯 热度阈值配置</h4>
+                            <div class="form-group">
+                                <label for="popularity-threshold">热度阈值 (0.01 - 1.0)</label>
+                                <input type="number" id="popularity-threshold" value="0.22" min="0.01" max="1.0" step="0.01">
+                                <small>只有热度超过此阈值的插画才会被保存到数据库</small>
+                            </div>
+                            <div class="threshold-examples">
+                                <strong>参考值：</strong>
+                                <span class="threshold-tag">0.15 (宽松)</span>
+                                <span class="threshold-tag">0.22 (默认)</span>
+                                <span class="threshold-tag">0.30 (严格)</span>
+                                <span class="threshold-tag">0.50 (极严格)</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- 单个PID爬取 -->
                 <div class="card">
                     <h3>🎯 单个PID爬取</h3>
@@ -385,7 +507,21 @@
         document.addEventListener('DOMContentLoaded', function() {
             refreshStatus();
             addLog('页面加载完成，系统就绪', 'info');
+            initThresholdTags();
         });
+
+        // 初始化热度阈值标签点击事件
+        function initThresholdTags() {
+            const thresholdTags = document.querySelectorAll('.threshold-tag');
+            thresholdTags.forEach(tag => {
+                tag.addEventListener('click', function() {
+                    const text = this.textContent;
+                    const value = text.match(/\d+\.\d+/)[0]; // 提取数字部分
+                    document.getElementById('popularity-threshold').value = value;
+                    showAlert(`热度阈值已设置为 ${value}`, 'success');
+                });
+            });
+        }
 
         // 开始日志轮询
         function startLogPolling() {
@@ -501,9 +637,15 @@
         async function startSingleCrawl() {
             const pid = document.getElementById('single-pid').value.trim();
             const targetNum = parseInt(document.getElementById('single-target').value);
+            const popularityThreshold = parseFloat(document.getElementById('popularity-threshold').value);
 
             if (!pid) {
                 showAlert('请输入有效的Pixiv插画ID', 'error');
+                return;
+            }
+
+            if (isNaN(popularityThreshold) || popularityThreshold < 0.01 || popularityThreshold > 1.0) {
+                showAlert('请输入有效的热度阈值 (0.01 - 1.0)', 'error');
                 return;
             }
 
@@ -518,7 +660,7 @@
                 btn.disabled = true;
                 btn.innerHTML = '<span class="loading"></span>爬取中...';
 
-                addLog('开始爬取PID: ' + pid + '，目标数量: ' + targetNum, 'info');
+                addLog(`开始爬取PID: ${pid}，目标数量: ${targetNum}，热度阈值: ${popularityThreshold}`, 'info');
                 showProgress();
 
                 const response = await fetch(API_BASE, {
@@ -528,7 +670,8 @@
                     },
                     body: JSON.stringify({
                         pid: pid,
-                        targetNum: targetNum
+                        targetNum: targetNum,
+                        popularityThreshold: popularityThreshold
                     })
                 });
 
@@ -564,6 +707,7 @@
         async function startBatchCrawl() {
             const pidsText = document.getElementById('batch-pids').value.trim();
             const targetNum = parseInt(document.getElementById('batch-target').value);
+            const popularityThreshold = parseFloat(document.getElementById('popularity-threshold').value);
 
             if (!pidsText) {
                 showAlert('请输入有效的Pixiv插画ID列表', 'error');
@@ -574,6 +718,11 @@
 
             if (pids.length === 0) {
                 showAlert('没有找到有效的PID', 'error');
+                return;
+            }
+
+            if (isNaN(popularityThreshold) || popularityThreshold < 0.01 || popularityThreshold > 1.0) {
+                showAlert('请输入有效的热度阈值 (0.01 - 1.0)', 'error');
                 return;
             }
 
@@ -588,7 +737,7 @@
                 btn.disabled = true;
                 btn.innerHTML = '<span class="loading"></span>批量爬取中...';
 
-                addLog('开始批量爬取，共' + pids.length + '个PID，目标数量: ' + targetNum, 'info');
+                addLog(`开始批量爬取，共${pids.length}个PID，目标数量: ${targetNum}，热度阈值: ${popularityThreshold}`, 'info');
                 showProgress();
 
                 const response = await fetch(API_BASE, {
@@ -598,7 +747,8 @@
                     },
                     body: JSON.stringify({
                         pids: pids,
-                        targetNum: targetNum
+                        targetNum: targetNum,
+                        popularityThreshold: popularityThreshold
                     })
                 });
 
