@@ -1,4 +1,4 @@
-name = "cf-pixiv-api-worker"
+name = 'pixiv-api-worker'
 main = "cf-worker.ts"
 compatibility_date = "2024-11-21"
 compatibility_flags = ["nodejs_compat"]
