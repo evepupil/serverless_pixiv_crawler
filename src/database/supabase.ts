@@ -189,4 +189,20 @@ export class SupabaseService {
       throw error;
     }
   }
+
+  // 最小化插入/更新 Pic，仅按 pid upsert，避免重复错误
+  async upsertMinimalPics(pids: string[]): Promise<void> {
+    const uniquePids = Array.from(new Set(pids));
+    if (uniquePids.length === 0) return;
+
+    const rows = uniquePids.map(pid => ({ pid }));
+    const { error } = await this.client
+      .from('pic')
+      .upsert(rows, { onConflict: 'pid' });
+
+    if (error) {
+      console.error('Error upserting minimal pics:', error);
+      throw error;
+    }
+  }
 }

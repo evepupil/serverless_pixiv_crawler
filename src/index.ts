@@ -411,6 +411,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           const limit = parseInt(req.query.limit as string) || 100;
           const logs = logManager.getLogs(taskId, limit);
           res.status(200).json(logs);
+        } else if (action === 'home') {
+          // 获取首页推荐 PID 并最小化入库
+          const headersList = getPixivHeaders();
+          const taskId = 'home_' + Date.now();
+          const crawler = new PixivCrawler('0', headersList, logManager, taskId, 0);
+          const pids = await crawler.getHomeRecommendedPids();
+          if (pids && pids.length > 0) {
+            const supabase = new SupabaseService();
+            await supabase.upsertMinimalPics(pids);
+            res.status(200).json({ message: '首页推荐已入库', count: pids.length, taskId });
+          } else {
+            res.status(200).json({ message: '未提取到PID', count: 0, taskId });
+          }
         } else if (action === 'daily' || action === 'weekly' || action === 'monthly') {
           // 触发按类型排行榜抓取
           const type = action as 'daily' | 'weekly' | 'monthly';

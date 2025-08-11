@@ -115,6 +115,36 @@ export class PixivCrawler {
       return null;
     }
   }
+
+  // 获取首页推荐中的 PID（从根页面提取 data-gtm-work-id）
+  async getHomeRecommendedPids(): Promise<string[] | null> {
+    try {
+      const sleepTime = getRandomDelay(CRAWLER_CONFIG.REQUEST_DELAY_MIN, CRAWLER_CONFIG.REQUEST_DELAY_MAX);
+      await sleep(sleepTime);
+
+      const response = await this.httpClient.get('https://www.pixiv.net/', { responseType: 'text' });
+      const html: string = typeof response.data === 'string' ? response.data : String(response.data);
+
+      const pidRegex = /<a[^>]*data-gtm-work-id=["'](\d+)["'][^>]*>/gi;
+      const pids: string[] = [];
+      const seen = new Set<string>();
+      let match: RegExpExecArray | null;
+      while ((match = pidRegex.exec(html)) !== null) {
+        const pid = match[1];
+        if (!seen.has(pid)) {
+          seen.add(pid);
+          pids.push(pid);
+          if (pids.length >= 500) break; // 合理阈值
+        }
+      }
+
+      this.logManager.addLog(`首页推荐提取到 ${pids.length} 个PID`, 'info', this.taskId);
+      return pids;
+    } catch (error) {
+      this.logManager.addLog(`获取首页推荐异常: ${error instanceof Error ? error.message : String(error)}`, 'error', this.taskId);
+      return null;
+    }
+  }
   async getDailyRank(authorId?: string): Promise<PixivDailyRankResponse | null> {
     try {
       const sleepTime = getRandomDelay(CRAWLER_CONFIG.REQUEST_DELAY_MIN, CRAWLER_CONFIG.REQUEST_DELAY_MAX);
