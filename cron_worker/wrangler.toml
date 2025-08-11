@@ -21,3 +21,6 @@ WORKER_API_BASES = "https://pixiv.chaosyn.com/api"
 TEN_MIN_TARGET_NUM = "100"
 TEN_MIN_THRESHOLD = "0"
 
+# wrangler.toml (wrangler v3.88.0^)
+[observability.logs]
+enabled = true
