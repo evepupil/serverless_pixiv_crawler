@@ -98,6 +98,10 @@ dist
 .temp
 .cache
 
+# Cloudflare Workers
+wrangler.toml
+.wrangler/
+
 # Docusaurus cache and generated files
 .docusaurus
 
