@@ -37,7 +37,7 @@ export class PixivDownloader {
 
     // 初始化HTTP客户端
     this.httpClient = axios.create({
-      timeout: 30000,
+      timeout: 15000, // 减少超时时间到15秒
       headers: this.headers as any
     });
 
@@ -322,39 +322,58 @@ export class PixivDownloader {
   }
 
   /**
-   * 批量下载图片
+   * 批量下载图片（优化版本，支持并发）
    */
   async batchDownload(pids: string[]): Promise<DownloadResult[]> {
     const results: DownloadResult[] = [];
     
-    this.logManager.addLog(`开始批量下载 ${pids.length} 张图片`, 'info', this.taskId);
+    this.logManager.addLog(`开始批量下载 ${pids.length} 张图片（并发模式）`, 'info', this.taskId);
     
-    for (let i = 0; i < pids.length; i++) {
-      const pid = pids[i];
-      this.logManager.addLog(`处理第 ${i + 1}/${pids.length} 张图片: ${pid}`, 'info', this.taskId);
+    // 分批处理，避免同时发起太多请求
+    const batchSize = 3; // 并发数量
+    const batches = [];
+    
+    for (let i = 0; i < pids.length; i += batchSize) {
+      batches.push(pids.slice(i, i + batchSize));
+    }
+    
+    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+      const batch = batches[batchIndex];
+      this.logManager.addLog(`处理第 ${batchIndex + 1}/${batches.length} 批，共 ${batch.length} 张图片`, 'info', this.taskId);
       
-      try {
-        const result = await this.downloadIllust(pid);
-        results.push(result);
+      // 并发处理当前批次
+      const batchPromises = batch.map(async (pid, index) => {
+        const globalIndex = batchIndex * batchSize + index;
+        this.logManager.addLog(`处理第 ${globalIndex + 1}/${pids.length} 张图片: ${pid}`, 'info', this.taskId);
         
-        if (result.success) {
-          this.logManager.addLog(`图片 ${pid} 下载成功`, 'success', this.taskId);
-        } else {
-          this.logManager.addLog(`图片 ${pid} 下载失败: ${result.error}`, 'error', this.taskId);
+        try {
+          const result = await this.downloadIllust(pid);
+          
+          if (result.success) {
+            this.logManager.addLog(`图片 ${pid} 下载成功`, 'success', this.taskId);
+          } else {
+            this.logManager.addLog(`图片 ${pid} 下载失败: ${result.error}`, 'error', this.taskId);
+          }
+          
+          return result;
+        } catch (error) {
+          const errorResult: DownloadResult = {
+            success: false,
+            pid,
+            error: error instanceof Error ? error.message : String(error)
+          };
+          this.logManager.addLog(`图片 ${pid} 处理异常: ${errorResult.error}`, 'error', this.taskId);
+          return errorResult;
         }
-        
-        // 添加延迟避免请求过快
-        if (i < pids.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 1000));
-        }
-      } catch (error) {
-        const errorResult: DownloadResult = {
-          success: false,
-          pid,
-          error: error instanceof Error ? error.message : String(error)
-        };
-        results.push(errorResult);
-        this.logManager.addLog(`图片 ${pid} 处理异常: ${errorResult.error}`, 'error', this.taskId);
+      });
+      
+      // 等待当前批次完成
+      const batchResults = await Promise.all(batchPromises);
+      results.push(...batchResults);
+      
+      // 批次间短暂延迟，避免请求过于密集
+      if (batchIndex < batches.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
     }
     

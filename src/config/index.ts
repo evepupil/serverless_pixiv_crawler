@@ -25,8 +25,17 @@ export const config: Config = {
 export const CRAWLER_CONFIG = {
   MAX_ILLUSTRATIONS: 1000,
   MAX_REQUESTS_PER_HEADER: 300,
-  REQUEST_DELAY_MIN: 1000,
-  REQUEST_DELAY_MAX: 3000
+  // 减少延迟以提高速度
+  REQUEST_DELAY_MIN: 100,  // 从1000ms减少到100ms
+  REQUEST_DELAY_MAX: 500,  // 从3000ms减少到500ms
+  // 新增并发控制
+  CONCURRENT_REQUESTS: 3,  // 并发请求数
+  BATCH_SIZE: 10,          // 批量处理大小
+  // 超时优化
+  HTTP_TIMEOUT: 15000,     // 从30秒减少到15秒
+  // 重试机制
+  MAX_RETRIES: 3,
+  RETRY_DELAY: 1000
 };
 
 // 获取Pixiv请求头列表

@@ -58,7 +58,7 @@ export class PixivCrawler {
     this.popularityThreshold = popularityThreshold;
     
     this.httpClient = axios.create({
-      timeout: 30000,
+      timeout: CRAWLER_CONFIG.HTTP_TIMEOUT, // 使用配置的超时时间
       headers: this.headers as any
     });
   }
@@ -72,27 +72,43 @@ export class PixivCrawler {
   }
 
   async getIllustInfo(pid: string): Promise<PixivIllustInfo | null> {
-    try {
-      // 随机延迟防止被ban
-      const sleepTime = getRandomDelay(CRAWLER_CONFIG.REQUEST_DELAY_MIN, CRAWLER_CONFIG.REQUEST_DELAY_MAX);
-      await sleep(sleepTime);
+    let retries = 0;
+    const maxRetries = CRAWLER_CONFIG.MAX_RETRIES;
+    
+    while (retries <= maxRetries) {
+      try {
+        // 减少延迟以提高速度
+        if (retries > 0) {
+          const sleepTime = CRAWLER_CONFIG.RETRY_DELAY * retries;
+          await sleep(sleepTime);
+        } else {
+          const sleepTime = getRandomDelay(CRAWLER_CONFIG.REQUEST_DELAY_MIN, CRAWLER_CONFIG.REQUEST_DELAY_MAX);
+          await sleep(sleepTime);
+        }
 
-      const response = await this.httpClient.get(
-        `https://www.pixiv.net/ajax/illust/${pid}`
-      );
+        const response = await this.httpClient.get(
+          `https://www.pixiv.net/ajax/illust/${pid}`
+        );
 
-      const resJson: PixivIllustInfo = response.data;
-      
-      if (resJson.error === false) {
-        return resJson;
-      } else {
-        this.logManager.addLog(`获取插画信息失败，错误json为${JSON.stringify(resJson)}`, 'warning', this.taskId);
-        return null;
+        const resJson: PixivIllustInfo = response.data;
+        
+        if (resJson.error === false) {
+          return resJson;
+        } else {
+          this.logManager.addLog(`获取插画信息失败，错误json为${JSON.stringify(resJson)}`, 'warning', this.taskId);
+          return null;
+        }
+      } catch (error) {
+        retries++;
+        if (retries > maxRetries) {
+          this.logManager.addLog(`获取插画${pid}信息异常(重试${maxRetries}次后失败): ${error instanceof Error ? error.message : String(error)}`, 'error', this.taskId);
+          return null;
+        }
+        this.logManager.addLog(`获取插画${pid}信息异常，第${retries}次重试: ${error instanceof Error ? error.message : String(error)}`, 'warning', this.taskId);
       }
-    } catch (error) {
-      this.logManager.addLog(`获取插画${pid}信息异常: ${error instanceof Error ? error.message : String(error)}`, 'error', this.taskId);
-      return null;
     }
+    
+    return null;
   }
 
   async getIllustRecommend(pid: string): Promise<PixivRecommendResponse | null> {

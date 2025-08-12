@@ -1,7 +1,7 @@
 const axios = require('axios');
 
 // 测试配置
-const API_BASE_URL = 'http://localhost:3000/'; // 或者你的Vercel部署URL
+const API_BASE_URL = 'https://pixiv.chaosyn.com/'; // 或者你的Vercel部署URL
 const TEST_PID = '127526045'; // 替换为真实的PID进行测试
 
 async function testSizeFeature() {
