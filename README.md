@@ -62,8 +62,7 @@ cp env.example .env
 
 ```env
 # Supabase 数据库配置
-SUPABASE_URL=your_supabase_url
-SUPABASE_ANON_KEY=your_supabase_anon_key
+SUPABASE_URL=your_supabase_project_url
 SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
 
 # Pixiv API 配置
@@ -369,7 +368,6 @@ PIXIV_ACCEPT_LANGUAGE=zh-CN,zh;q=0.8,zh-TW;q=0.2
 ```env
 # 数据库连接
 SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_ANON_KEY=your_anon_key
 SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 ```
 

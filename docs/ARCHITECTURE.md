@@ -336,7 +336,6 @@ FROM pic;
 ```bash
 # Supabase 数据库配置
 SUPABASE_URL=your_supabase_url
-SUPABASE_ANON_KEY=your_supabase_anon_key
 SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
 
 # Pixiv API 配置
@@ -423,7 +422,7 @@ class LogManager {
  * 确保所有必要的环境变量都已配置
  */
 function validateEnvironment(): { valid: boolean; missing: string[] } {
-  const required = ['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'PIXIV_COOKIE'];
+  const required = ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'PIXIV_COOKIE'];
   const missing = required.filter(key => !process.env[key]);
   
   return {

@@ -17,20 +17,28 @@ DROP POLICY IF EXISTS "Allow crawler upsert to ranking" ON ranking;
 DROP POLICY IF EXISTS "Allow crawler update to ranking" ON ranking;
 DROP POLICY IF EXISTS "Deny all delete from ranking" ON ranking;
 
--- 创建严格的只读策略
--- pic 表：只允许读取，严格禁止写入/更新/删除
-CREATE POLICY "strict_readonly_pic" ON pic
+-- 创建安全策略：允许读取，Service Role可以写入
+-- pic 表策略
+CREATE POLICY "allow_read_pic" ON pic
     FOR SELECT USING (true);
 
-CREATE POLICY "deny_all_modifications_pic" ON pic
-    FOR ALL USING (false);
+CREATE POLICY "allow_service_role_write_pic" ON pic
+    FOR ALL USING (
+        auth.role() = 'service_role' OR 
+        current_setting('role') = 'service_role' OR
+        current_user = 'service_role'
+    );
 
--- ranking 表：只允许读取，严格禁止写入/更新/删除
-CREATE POLICY "strict_readonly_ranking" ON ranking
+-- ranking 表策略  
+CREATE POLICY "allow_read_ranking" ON ranking
     FOR SELECT USING (true);
 
-CREATE POLICY "deny_all_modifications_ranking" ON ranking
-    FOR ALL USING (false);
+CREATE POLICY "allow_service_role_write_ranking" ON ranking
+    FOR ALL USING (
+        auth.role() = 'service_role' OR 
+        current_setting('role') = 'service_role' OR
+        current_user = 'service_role'
+    );
 
 -- 撤销所有默认权限
 REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon, authenticated;
@@ -88,4 +96,4 @@ BEGIN
     RAISE NOTICE '⚠️  Publishable Key 现在只能读取数据';
     RAISE NOTICE '⚠️  爬虫操作需要使用 pixiv_admin 角色';
     RAISE NOTICE '⚠️  请使用 Secret Key 进行爬虫操作';
-END$$; 
+END$$;

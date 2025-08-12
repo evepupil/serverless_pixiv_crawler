@@ -63,8 +63,7 @@ export default {
       if (action === 'env-check') {
         const envVars = {
           SUPABASE_URL: !!env.SUPABASE_URL,
-          SUPABASE_PUBLISHABLE_KEY: !!env.SUPABASE_PUBLISHABLE_KEY,
-          SUPABASE_SECRET_KEY: !!env.SUPABASE_SECRET_KEY,
+          SUPABASE_SERVICE_ROLE_KEY: !!env.SUPABASE_SERVICE_ROLE_KEY,
           PIXIV_COOKIE: !!env.PIXIV_COOKIE,
           PIXIV_REFERER: !!env.PIXIV_REFERER,
           PIXIV_USER_AGENT: !!env.PIXIV_USER_AGENT,
@@ -81,7 +80,7 @@ export default {
           console.log('=== Testing basic functionality ===');
           console.log('Environment variables check:', {
             hasSupabaseUrl: !!env.SUPABASE_URL,
-            hasSupabaseKey: !!env.SUPABASE_SECRET_KEY || !!env.SUPABASE_PUBLISHABLE_KEY,
+            hasSupabaseKey: !!env.SUPABASE_SERVICE_ROLE_KEY,
             hasPixivCookie: !!env.PIXIV_COOKIE,
             cookieLength: env.PIXIV_COOKIE?.length || 0
           });

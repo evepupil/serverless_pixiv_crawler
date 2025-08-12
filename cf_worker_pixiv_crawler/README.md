@@ -90,8 +90,7 @@ cf_worker_pixiv_crawler/
 
 ### **必需变量**
 - `SUPABASE_URL` - Supabase 项目 URL
-- `SUPABASE_SECRET_KEY` - Supabase 密钥（优先使用）
-- `SUPABASE_PUBLISHABLE_KEY` - Supabase 公开密钥（备用）
+- `SUPABASE_SERVICE_ROLE_KEY` - Supabase 服务角色密钥
 - `PIXIV_COOKIE` - Pixiv 网站 Cookie
 
 ### **可选变量**
@@ -163,4 +162,4 @@ wrangler deploy
 
 ---
 
-**注意**: 此版本完全兼容 Cloudflare Workers 环境，使用纯 Web API 实现，确保在 CF Workers 中稳定运行。 
+**注意**: 此版本完全兼容 Cloudflare Workers 环境，使用纯 Web API 实现，确保在 CF Workers 中稳定运行。

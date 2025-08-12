@@ -22,7 +22,7 @@ export class PixivCrawler {
     this.referer = env.PIXIV_REFERER || 'https://www.pixiv.net/artworks/123456789';
     this.userAgent = env.PIXIV_USER_AGENT || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:131.0) Gecko/20100101 Firefox/131.0';
     this.supabaseUrl = env.SUPABASE_URL;
-    this.supabaseKey = env.SUPABASE_SECRET_KEY || env.SUPABASE_PUBLISHABLE_KEY;
+    this.supabaseKey = env.SUPABASE_SERVICE_ROLE_KEY;
     
     console.log('PixivCrawler initialized with:', {
       hasCookie: !!this.pixivCookie,
@@ -405,4 +405,4 @@ export class PixivCrawler {
     console.log(`After deduplication: ${uniquePids.length} unique PIDs`);
     return uniquePids;
   }
-} 
+}

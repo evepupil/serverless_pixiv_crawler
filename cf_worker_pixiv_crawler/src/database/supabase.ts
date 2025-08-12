@@ -9,7 +9,7 @@ export class SupabaseService {
 
   constructor(env: any) {
     this.supabaseUrl = env.SUPABASE_URL;
-    this.supabaseKey = env.SUPABASE_SECRET_KEY || env.SUPABASE_PUBLISHABLE_KEY;
+    this.supabaseKey = env.SUPABASE_SERVICE_ROLE_KEY;
 
     if (!this.supabaseUrl || !this.supabaseKey) {
       throw new Error('Missing Supabase environment variables');
@@ -131,4 +131,4 @@ export class SupabaseService {
       return 0;
     }
   }
-} 
+}
