@@ -79,6 +79,7 @@ export interface DatabasePic {
   wx_url?: string;
   wx_name?: string;
   unfit?: boolean;
+  size?: number; // 图片文件大小（字节）
 }
 
 export interface Config {
@@ -87,4 +88,37 @@ export interface Config {
   blacklist_tag: string[];
   img_dirs: string;
   img_nums: number;
+}
+
+// 新增下载相关类型
+export interface PixivIllustPage {
+  urls: {
+    original: string;
+    regular: string;
+    small: string;
+    thumb_mini: string;
+  };
+}
+
+export interface PixivIllustPagesResponse {
+  body: PixivIllustPage[];
+  error: boolean;
+}
+
+export interface DownloadResult {
+  success: boolean;
+  pid: string;
+  imageUrl?: string;
+  r2Path?: string;
+  fileSize?: number;
+  error?: string;
+  artistName?: string;
+}
+
+export interface R2Config {
+  accountId: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  bucketName: string;
+  region: string;
 } 

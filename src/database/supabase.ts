@@ -76,18 +76,29 @@ export class SupabaseService {
     return data;
   }
 
-  async updatePicDownload(pid: string, path: string, imgUrl: string): Promise<void> {
+  async updatePicDownload(pid: string, path: string, imgUrl: string, fileSize?: number): Promise<void> {
     const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    const updateData: any = { 
+      image_path: path, 
+      image_url: imgUrl, 
+      download_time: now 
+    };
+    
+    // 如果提供了文件大小，则更新size列
+    if (fileSize !== undefined) {
+      updateData.size = fileSize;
+    }
+    
     const { error } = await this.client
       .from('pic')
-      .update({ image_path: path, image_url: imgUrl, download_time: now })
+      .update(updateData)
       .eq('pid', pid);
 
     if (error) {
       console.error('Error updating pic download:', error);
       throw error;
     }
-    console.log('更新Pic下载路径和图片地址完成');
+    console.log('更新Pic下载路径、图片地址和文件大小完成');
   }
 
   async updatePic(pic: Partial<DatabasePic> & { pid: string }): Promise<void> {

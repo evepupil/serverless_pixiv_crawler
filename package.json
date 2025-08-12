@@ -7,14 +7,18 @@
     "build": "tsc",
     "dev": "ts-node src/index.ts",
     "start": "node dist/index.js",
-    "deploy": "vercel --prod"
+    "deploy": "vercel --prod",
+    "test:download": "node test-download.js",
+    "test:size": "node test-size-feature.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.38.0",
     "@vercel/node": "^3.0.0",
     "axios": "^1.6.0",
     "cheerio": "^1.0.0-rc.12",
-    "dotenv": "^16.3.1"
+    "dotenv": "^16.3.1",
+    "@aws-sdk/client-s3": "^3.470.0",
+    "@aws-sdk/s3-request-presigner": "^3.470.0"
   },
   "devDependencies": {
     "@types/cheerio": "^0.22.35",

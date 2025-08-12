@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS pic (
     wx_url VARCHAR(255),
     wx_name VARCHAR(255),
     unfit BOOLEAN DEFAULT FALSE,
+    size BIGINT, -- 图片文件大小（字节）
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );

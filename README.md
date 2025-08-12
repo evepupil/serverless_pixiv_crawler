@@ -13,6 +13,7 @@
 - 🔧 **TypeScript**: 完整的类型安全支持，提升开发效率
 - 🗄️ **Supabase数据库**: PostgreSQL + 实时数据同步
 - 🕷️ **智能爬虫**: 递归推荐算法，智能发现优质内容
+- 📥 **图片下载**: 支持下载图片到Cloudflare R2存储
 - 🔄 **防封机制**: 多Header轮换 + 随机延迟 + 请求频率控制
 - 📊 **数据统计**: 热度计算、标签分析、实时监控
 - 🌐 **Web界面**: 现代化UI，实时日志，任务管理
@@ -32,6 +33,7 @@
 - **HTML解析**: Cheerio 1.0+
 - **环境配置**: dotenv 16.3+
 - **数据库SDK**: @supabase/supabase-js 2.38+
+- **云存储**: @aws-sdk/client-s3 3.470+ (Cloudflare R2兼容)
 
 ## 🚀 快速开始
 
@@ -61,20 +63,25 @@ cp env.example .env
 编辑 `.env` 文件，填入你的配置：
 
 ```env
-# Supabase 数据库配置
-SUPABASE_URL=your_supabase_project_url
-SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
+# Supabase配置
+SUPABASE_URL=your_supabase_url_here
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key_here
 
-# Pixiv API 配置
-PIXIV_USER_AGENT=Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:131.0) Gecko/20100101 Firefox/131.0
+# Pixiv配置
 PIXIV_COOKIE=your_pixiv_cookie_here
-PIXIV_REFERER=https://www.pixiv.net/artworks/112388359
 
-# 爬虫参数配置
+# Cloudflare R2配置
+CLOUDFLARE_ACCOUNT_ID=your_cloudflare_account_id_here
+CLOUDFLARE_ACCESS_KEY_ID=your_cloudflare_access_key_id_here
+CLOUDFLARE_SECRET_ACCESS_KEY=your_cloudflare_secret_access_key_here
+CLOUDFLARE_BUCKET_NAME=your_cloudflare_bucket_name_here
+CLOUDFLARE_REGION=auto
+
+# 爬虫配置（可选）
 MAX_ILLUSTRATIONS=1000
 POPULARITY_THRESHOLD=0.22
-REQUEST_DELAY_MIN=0
-REQUEST_DELAY_MAX=1000
+REQUEST_DELAY_MIN=1000
+REQUEST_DELAY_MAX=3000
 MAX_REQUESTS_PER_HEADER=300
 ```
 
@@ -117,6 +124,7 @@ vercel --prod
 
 - **📊 实时监控**: 查看服务状态、数据库统计
 - **🚀 任务管理**: 启动单个或批量爬取任务
+- **📥 图片下载**: 下载图片到Cloudflare R2存储
 - **📝 实时日志**: 查看任务执行过程和结果
 - **⚙️ 参数配置**: 设置目标数量和热度阈值
 
@@ -204,7 +212,7 @@ Content-Type: application/json
 }
 ```
 
-> 📚 **完整API文档**: 请参考 [API文档](docs/API_DOCUMENTATION.md)
+> 📚 **完整API文档**: 请参考 [API文档](docs/API_DOCUMENTATION.md) 和 [下载API文档](docs/DOWNLOAD_API.md)
 
 ## 📁 项目结构
 
@@ -214,6 +222,7 @@ Content-Type: application/json
 │   └── index.ts              # API 入口文件
 ├── 📁 docs/                  # 项目文档
 │   ├── API_DOCUMENTATION.md  # API 接口文档
+│   ├── DOWNLOAD_API.md       # 下载功能API文档
 │   ├── ARCHITECTURE.md       # 架构设计文档
 │   ├── DEPLOYMENT.md         # 部署指南
 │   ├── USAGE.md             # 使用说明
@@ -224,7 +233,8 @@ Content-Type: application/json
 │   ├── 📁 database/         # 数据库层
 │   │   └── supabase.ts      # Supabase 数据库服务
 │   ├── 📁 services/         # 业务逻辑层
-│   │   └── pixiv-crawler.ts # Pixiv 爬虫核心服务
+│   │   ├── pixiv-crawler.ts # Pixiv 爬虫核心服务
+│   │   └── pixiv-downloader.ts # Pixiv 图片下载服务
 │   ├── 📁 templates/        # HTML 模板
 │   │   └── index.html       # Web 界面模板
 │   ├── 📁 types/           # TypeScript 类型定义

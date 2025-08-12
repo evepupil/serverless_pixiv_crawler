@@ -1,7 +1,8 @@
 // 适配 Vercel 与 Cloudflare Workers 环境类型
 import { VercelRequest, VercelResponse } from '@vercel/node';
 import { PixivCrawler } from './services/pixiv-crawler';
-import { getPixivHeaders } from './config';
+import { PixivDownloader } from './services/pixiv-downloader';
+import { getPixivHeaders, getR2Config, checkEnvironmentVariables, checkR2Config } from './config';
 import { SupabaseService } from './database/supabase';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -199,6 +200,20 @@ function getInlineHTML(): string {
         </div>
         
         <div class="card">
+            <h3>📥 下载功能</h3>
+            <div style="margin-bottom: 20px;">
+                <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                    <input type="text" id="download-pid" placeholder="输入PID" style="flex: 1; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                    <button class="btn" onclick="downloadSingle()">下载单个</button>
+                </div>
+                <div style="display: flex; gap: 10px;">
+                    <textarea id="download-pids" placeholder="输入多个PID，每行一个" style="flex: 1; padding: 8px; border: 1px solid #ddd; border-radius: 4px; height: 80px; resize: vertical;"></textarea>
+                    <button class="btn" onclick="downloadBatch()">批量下载</button>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card">
             <h3>📝 实时日志</h3>
             <div class="log-panel" id="log-content">
                 <div>[系统] 等待日志输出...</div>
@@ -215,6 +230,74 @@ function getInlineHTML(): string {
             refreshStatus();
             addLog('页面加载完成，系统就绪', 'info');
         });
+
+        async function downloadSingle() {
+            const pid = document.getElementById('download-pid').value.trim();
+            if (!pid) {
+                addLog('请输入PID', 'error');
+                return;
+            }
+            
+            addLog('开始下载单个图片: ' + pid, 'info');
+            
+            try {
+                const response = await fetch(API_BASE, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'download',
+                        downloadPid: pid
+                    })
+                });
+                
+                const data = await response.json();
+                if (response.ok) {
+                    addLog('下载任务已启动: ' + data.message, 'success');
+                    addLog('任务ID: ' + data.taskId, 'info');
+                } else {
+                    addLog('下载任务启动失败: ' + data.error, 'error');
+                }
+            } catch (error) {
+                addLog('下载请求失败: ' + error.message, 'error');
+            }
+        }
+
+        async function downloadBatch() {
+            const pidsText = document.getElementById('download-pids').value.trim();
+            if (!pidsText) {
+                addLog('请输入PID列表', 'error');
+                return;
+            }
+            
+            const pids = pidsText.split('\\n').map(pid => pid.trim()).filter(pid => pid);
+            if (pids.length === 0) {
+                addLog('没有有效的PID', 'error');
+                return;
+            }
+            
+            addLog('开始批量下载 ' + pids.length + ' 张图片', 'info');
+            
+            try {
+                const response = await fetch(API_BASE, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'download',
+                        downloadPids: pids
+                    })
+                });
+                
+                const data = await response.json();
+                if (response.ok) {
+                    addLog('批量下载任务已启动: ' + data.message, 'success');
+                    addLog('任务ID: ' + data.taskId, 'info');
+                } else {
+                    addLog('批量下载任务启动失败: ' + data.error, 'error');
+                }
+            } catch (error) {
+                addLog('批量下载请求失败: ' + error.message, 'error');
+            }
+        }
 
         function addLog(message, type = 'info') {
             const logContent = document.getElementById('log-content');
@@ -266,15 +349,12 @@ function getInlineHTML(): string {
 }
 
 // 检查环境变量
-function checkEnvironmentVariables(): boolean {
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  
-  if (!url || !key) {
-    console.warn('Missing environment variables: SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
+function checkEnvVariables(): boolean {
+  const envCheck = checkEnvironmentVariables();
+  if (!envCheck.valid) {
+    console.warn('Missing environment variables:', envCheck.missing);
     return false;
   }
-  
   return true;
 }
 
@@ -405,14 +485,45 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           }
         } else if (action === 'env-check') {
           // 检查环境变量
-          const valid = checkEnvironmentVariables();
-          res.status(200).json({ valid, timestamp: new Date().toISOString() });
+          const envCheck = checkEnvironmentVariables();
+          const r2Check = checkR2Config();
+          res.status(200).json({ 
+            valid: envCheck.valid, 
+            missing: envCheck.missing, 
+            r2Valid: r2Check.valid,
+            r2Missing: r2Check.missing,
+            features: {
+              crawler: envCheck.valid,
+              download: envCheck.valid && r2Check.valid
+            },
+            timestamp: new Date().toISOString() 
+          });
         } else if (action === 'logs') {
           // 获取日志
           const taskId = req.query.taskId as string;
           const limit = parseInt(req.query.limit as string) || 100;
           const logs = logManager.getLogs(taskId, limit);
           res.status(200).json(logs);
+        } else if (action === 'get-pic') {
+          // 获取指定PID的图片信息
+          const pid = req.query.pid as string;
+          if (!pid) {
+            res.status(400).json({ error: '缺少PID参数' });
+            return;
+          }
+          
+          try {
+            const supabase = new SupabaseService();
+            const picData = await supabase.getPicByPid(pid);
+            if (picData) {
+              res.status(200).json({ success: true, data: picData });
+            } else {
+              res.status(404).json({ success: false, error: '未找到指定的PID' });
+            }
+          } catch (error) {
+            console.error('获取图片信息失败:', error);
+            res.status(500).json({ success: false, error: '数据库查询失败' });
+          }
         } else if (action === 'home') {
           // 获取首页推荐 PID 并最小化入库
           const headersList = getPixivHeaders();
@@ -478,9 +589,102 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         break;
 
       case 'POST':
-        // 启动爬虫任务
-        const { pid, pids, targetNum = 1000, popularityThreshold } = req.body;
+        // 启动爬虫任务或下载任务
+        const { pid, pids, targetNum = 1000, popularityThreshold, action: postAction } = req.body;
 
+        // 处理下载请求
+        if (postAction === 'download') {
+          const { downloadPid, downloadPids } = req.body;
+          
+          if (!downloadPid && !downloadPids) {
+            res.status(400).json({ error: '下载请求缺少必要的参数: downloadPid 或 downloadPids' });
+            return;
+          }
+
+          // 检查基础环境变量配置
+          const envCheck = checkEnvironmentVariables();
+          if (!envCheck.valid) {
+            res.status(500).json({ 
+              error: '基础环境变量配置不完整', 
+              missing: envCheck.missing,
+              message: '缺少必需的环境变量: ' + envCheck.missing.join(', ')
+            });
+            return;
+          }
+
+          // 检查R2配置
+          const r2Check = checkR2Config();
+          if (!r2Check.valid) {
+            res.status(500).json({ 
+              error: 'R2配置不完整，无法使用下载功能', 
+              missing: r2Check.missing,
+              message: '缺少R2配置，下载功能不可用。缺少: ' + r2Check.missing.join(', ')
+            });
+            return;
+          }
+
+          try {
+            const headersList = getPixivHeaders();
+            const r2Config = getR2Config();
+            
+            if (downloadPid) {
+              // 单个PID下载
+              const taskId = 'download_single_' + downloadPid + '_' + Date.now();
+              logManager.addLog(`收到单个PID下载请求: ${downloadPid}`, 'info', taskId);
+              
+              res.status(200).json({ 
+                message: '下载任务已启动', 
+                pid: downloadPid,
+                taskId,
+                timestamp: new Date().toISOString()
+              });
+              
+              // 异步执行下载任务
+              const downloader = new PixivDownloader(headersList[0], r2Config, logManager, taskId);
+              downloader.downloadIllust(downloadPid).then(result => {
+                if (result.success) {
+                  logManager.addLog(`图片 ${downloadPid} 下载完成`, 'success', taskId);
+                } else {
+                  logManager.addLog(`图片 ${downloadPid} 下载失败: ${result.error}`, 'error', taskId);
+                }
+              }).catch(error => {
+                logManager.addLog('下载任务执行失败: ' + (error instanceof Error ? error.message : String(error)), 'error', taskId);
+              });
+              
+            } else if (downloadPids && Array.isArray(downloadPids)) {
+              // 批量PID下载
+              const taskId = 'download_batch_' + Date.now();
+              logManager.addLog(`收到批量PID下载请求，共${downloadPids.length}个PID`, 'info', taskId);
+              
+              res.status(200).json({ 
+                message: '批量下载任务已启动', 
+                pids: downloadPids,
+                count: downloadPids.length,
+                taskId,
+                timestamp: new Date().toISOString()
+              });
+              
+              // 异步执行批量下载任务
+              const downloader = new PixivDownloader(headersList[0], r2Config, logManager, taskId);
+              downloader.batchDownload(downloadPids).then(results => {
+                const successCount = results.filter(r => r.success).length;
+                logManager.addLog(`批量下载完成，成功: ${successCount}/${downloadPids.length}`, 'success', taskId);
+              }).catch(error => {
+                logManager.addLog('批量下载任务执行失败: ' + (error instanceof Error ? error.message : String(error)), 'error', taskId);
+              });
+            } else {
+              res.status(400).json({ error: 'downloadPids参数必须是数组' });
+            }
+          } catch (error) {
+            res.status(500).json({ 
+              error: '下载任务启动失败', 
+              message: error instanceof Error ? error.message : String(error)
+            });
+          }
+          return;
+        }
+
+        // 处理爬虫任务
         if (!pid && !pids) {
           res.status(400).json({ error: '缺少必要的参数: pid 或 pids' });
           return;
@@ -491,8 +695,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (Number.isNaN(threshold)) threshold = 0.0;
 
         // 检查环境变量配置
-        if (!checkEnvironmentVariables()) {
-          res.status(500).json({ error: '环境变量配置不完整，请检查 SUPABASE_URL 和 SUPABASE_SERVICE_ROLE_KEY' });
+        if (!checkEnvVariables()) {
+          res.status(500).json({ error: '环境变量配置不完整，请检查所有必需的环境变量' });
           return;
         }
 
