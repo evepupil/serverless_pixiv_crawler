@@ -537,6 +537,30 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           } else {
             res.status(200).json({ message: '未提取到PID', count: 0, pids: [], taskId });
           }
+        } else if (action === 'random-pids') {
+          // 从数据库随机获取指定数量的pid
+          const count = parseInt(req.query.count as string) || 10;
+          if (count <= 0 || count > 100) {
+            res.status(400).json({ error: 'count参数必须在1-100之间' });
+            return;
+          }
+          
+          try {
+            const supabase = new SupabaseService();
+            const pids = await supabase.getRandomPids(count);
+            res.status(200).json({ 
+              message: '随机PID获取成功', 
+              count: pids.length, 
+              pids, 
+              timestamp: new Date().toISOString() 
+            });
+          } catch (error) {
+            console.error('随机获取PID失败:', error);
+            res.status(500).json({ 
+              error: '随机获取PID失败', 
+              message: error instanceof Error ? error.message : '未知错误' 
+            });
+          }
         } else if (action === 'daily' || action === 'weekly' || action === 'monthly') {
           // 触发按类型排行榜抓取
           const type = action as 'daily' | 'weekly' | 'monthly';

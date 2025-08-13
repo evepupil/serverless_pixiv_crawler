@@ -282,4 +282,80 @@ export class SupabaseService {
       throw error;
     }
   }
+
+  /**
+   * 从数据库中随机获取指定数量的pid
+   * @param count 需要获取的pid数量，默认10个
+   * @returns 随机pid数组
+   */
+  async getRandomPids(count: number = 10): Promise<string[]> {
+    try {
+      console.log(`尝试从数据库随机获取${count}个PID`);
+      
+      // 使用rpc调用来执行随机查询，因为Supabase的order不支持random()函数
+      const { data, error } = await this.client.rpc('get_random_pids', {
+        limit_count: count
+      });
+
+      if (error) {
+        console.error('随机获取PID失败:', error);
+        // 如果rpc失败，尝试备用方案：获取总数然后随机选择
+        return await this.getRandomPidsFallback(count);
+      }
+
+      const pids = data?.map((item: any) => item.pid) || [];
+      console.log(`成功获取${pids.length}个随机PID:`, pids.slice(0, 3), pids.length > 3 ? '...' : '');
+      
+      return pids;
+    } catch (error) {
+      console.error('随机获取PID异常:', error);
+      // 使用备用方案
+      return await this.getRandomPidsFallback(count);
+    }
+  }
+
+  /**
+   * 备用方案：通过获取总数和随机偏移来获取随机PID
+   * @param count 需要获取的PID数量
+   * @returns Promise<string[]> PID数组
+   */
+  private async getRandomPidsFallback(count: number): Promise<string[]> {
+    try {
+      console.log('使用备用方案获取随机PID');
+      
+      // 先获取总数
+      const { count: totalCount, error: countError } = await this.client
+        .from('pic')
+        .select('*', { count: 'exact', head: true });
+
+      if (countError || !totalCount || totalCount === 0) {
+        console.error('获取总数失败或数据为空:', countError);
+        return [];
+      }
+
+      // 生成随机偏移量
+      const maxOffset = Math.max(0, totalCount - count);
+      const randomOffset = Math.floor(Math.random() * (maxOffset + 1));
+      
+      console.log(`总数: ${totalCount}, 随机偏移: ${randomOffset}`);
+
+      // 使用偏移量获取数据
+      const { data, error } = await this.client
+        .from('pic')
+        .select('pid')
+        .range(randomOffset, randomOffset + count - 1);
+
+      if (error) {
+        console.error('备用方案获取PID失败:', error);
+        return [];
+      }
+
+      const pids = data?.map(item => item.pid) || [];
+      console.log(`备用方案成功获取${pids.length}个PID`);
+      return pids;
+    } catch (error) {
+      console.error('备用方案异常:', error);
+      return [];
+    }
+  }
 }

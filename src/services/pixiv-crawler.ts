@@ -140,6 +140,7 @@ export class PixivCrawler {
 
       const response = await this.httpClient.get('https://www.pixiv.net/', { responseType: 'text' });
       const html: string = typeof response.data === 'string' ? response.data : String(response.data);
+      this.logManager.addLog(`获取首页推荐成功，html为${html}`, 'info', this.taskId);
 
       const pidRegex = /<a[^>]*data-gtm-work-id=["'](\d+)["'][^>]*>/gi;
       const pids: string[] = [];
