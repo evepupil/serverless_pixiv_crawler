@@ -533,8 +533,9 @@ export class PixivCrawler {
           if (viewJson) {
             const illustTags = getIllustTags(info);
             this.logManager.addLog(`view_json:${JSON.stringify(viewJson)}`, 'info', this.taskId);
+            console.log(`view_json:${JSON.stringify(viewJson)}`);
             this.logManager.addLog(`tag:${JSON.stringify(illustTags)}`, 'info', this.taskId);
-
+            console.log(`tag:${JSON.stringify(illustTags)}`);
             const tagsString = illustTags.join(', ');
 
             const picData: DatabasePic = {

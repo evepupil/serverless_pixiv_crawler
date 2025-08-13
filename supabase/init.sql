@@ -130,4 +130,4 @@ BEGIN
     ORDER BY RANDOM()
     LIMIT limit_count;
 END;
-$$ LANGUAGE plpgsql; 
+$$ LANGUAGE plpgsql;

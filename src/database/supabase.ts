@@ -210,6 +210,33 @@ export class SupabaseService {
     }
   }
 
+  /**
+   * 直接从pic_stats视图获取统计数据
+   * @returns Promise<{totalPics: number, downloadedPics: number, avgPopularity: number}>
+   */
+  async getStatsFromView(): Promise<{totalPics: number, downloadedPics: number, avgPopularity: number}> {
+    try {
+      const { data, error } = await this.client
+        .from('pic_stats')
+        .select('total_pics, downloaded_pics, avg_popularity')
+        .single();
+
+      if (error) {
+        console.error('Error getting stats from view:', error);
+        return { totalPics: 0, downloadedPics: 0, avgPopularity: 0 };
+      }
+
+      return {
+        totalPics: data?.total_pics || 0,
+        downloadedPics: data?.downloaded_pics || 0,
+        avgPopularity: Number((data?.avg_popularity || 0).toFixed(2))
+      };
+    } catch (error) {
+      console.error('Error getting stats from view:', error);
+      return { totalPics: 0, downloadedPics: 0, avgPopularity: 0 };
+    }
+  }
+
   // 排行榜写入/更新
   async upsertRankings(items: PixivDailyRankItem[], rankDate: string, type: 'daily' | 'weekly' | 'monthly'): Promise<void> {
     if (!items || items.length === 0) {

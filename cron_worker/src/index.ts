@@ -84,29 +84,126 @@ async function triggerTenMin(env: Env): Promise<void> {
   console.log(`准备分发${selectedPids.length}个PID给${workerBases.length}个从节点`);
 
   // 5) 向每个从节点分发单次爬取任务
-  await Promise.all(selectedPids.map((pid, idx) => {
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] 开始向${workerBases.length}个从节点分发${selectedPids.length}个PID`);
+  
+  const results = await Promise.allSettled(selectedPids.map(async (pid, idx) => {
     const base = workerBases[idx % workerBases.length].replace(/\/$/, '');
     const body = JSON.stringify({ pid, targetNum, popularityThreshold: threshold });
-    console.log(`分发PID ${pid} 给从节点 ${base}`);
-    return callApi(`${base}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+    const requestTimestamp = new Date().toISOString();
+    
+    console.log(`[${requestTimestamp}] 分发PID ${pid} 给从节点 ${base} (参数: targetNum=${targetNum}, threshold=${threshold})`);
+    
+    try {
+      const response = await callApi(`${base}`, { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json' }, 
+        body 
+      });
+      
+      const responseTimestamp = new Date().toISOString();
+      if (response.ok) {
+        const responseData = await response.json().catch(() => ({}));
+        console.log(`[${responseTimestamp}] ✅ PID ${pid} 分发成功 - 从节点 ${base} 响应:`, responseData);
+        return { pid, base, success: true, response: responseData };
+      } else {
+        console.log(`[${responseTimestamp}] ❌ PID ${pid} 分发失败 - 从节点 ${base} 状态码: ${response.status}`);
+        return { pid, base, success: false, error: `HTTP ${response.status}` };
+      }
+    } catch (error) {
+      const errorTimestamp = new Date().toISOString();
+      console.error(`[${errorTimestamp}] ❌ PID ${pid} 分发异常 - 从节点 ${base}:`, error);
+      return { pid, base, success: false, error: error instanceof Error ? error.message : String(error) };
+    }
   }));
   
-  console.log('定时任务分发完成');
+  // 统计分发结果
+  const successCount = results.filter(r => r.status === 'fulfilled' && r.value.success).length;
+  const failureCount = results.length - successCount;
+  const completionTimestamp = new Date().toISOString();
+  
+  console.log(`[${completionTimestamp}] 定时任务分发完成 - 成功: ${successCount}/${results.length}, 失败: ${failureCount}`);
+  
+  // 详细记录失败的分发
+  results.forEach((result, idx) => {
+    if (result.status === 'rejected') {
+      console.error(`[${completionTimestamp}] 分发任务${idx}被拒绝:`, result.reason);
+    } else if (!result.value.success) {
+      console.error(`[${completionTimestamp}] 分发失败详情 - PID: ${result.value.pid}, 从节点: ${result.value.base}, 错误: ${result.value.error}`);
+    }
+  });
 }
 
+/**
+ * 触发每日排行榜抓取任务
+ * @param env 环境变量配置
+ */
 async function triggerDaily(env: Env): Promise<void> {
+  const timestamp = new Date().toISOString();
   const base = env.PRIMARY_API_BASE.replace(/\/$/, '');
-  await callApi(`${base}/?action=daily`, { method: 'GET' });
+  console.log(`[${timestamp}] 触发每日排行榜抓取任务 - 目标: ${base}/?action=daily`);
+  
+  try {
+    const response = await callApi(`${base}/?action=daily`, { method: 'GET' });
+    const responseTimestamp = new Date().toISOString();
+    if (response.ok) {
+      const responseData = await response.json().catch(() => ({}));
+      console.log(`[${responseTimestamp}] ✅ 每日排行榜任务启动成功:`, responseData);
+    } else {
+      console.log(`[${responseTimestamp}] ❌ 每日排行榜任务启动失败 - 状态码: ${response.status}`);
+    }
+  } catch (error) {
+    const errorTimestamp = new Date().toISOString();
+    console.error(`[${errorTimestamp}] ❌ 每日排行榜任务异常:`, error);
+  }
 }
 
+/**
+ * 触发每周排行榜抓取任务
+ * @param env 环境变量配置
+ */
 async function triggerWeekly(env: Env): Promise<void> {
+  const timestamp = new Date().toISOString();
   const base = env.PRIMARY_API_BASE.replace(/\/$/, '');
-  await callApi(`${base}/?action=weekly`, { method: 'GET' });
+  console.log(`[${timestamp}] 触发每周排行榜抓取任务 - 目标: ${base}/?action=weekly`);
+  
+  try {
+    const response = await callApi(`${base}/?action=weekly`, { method: 'GET' });
+    const responseTimestamp = new Date().toISOString();
+    if (response.ok) {
+      const responseData = await response.json().catch(() => ({}));
+      console.log(`[${responseTimestamp}] ✅ 每周排行榜任务启动成功:`, responseData);
+    } else {
+      console.log(`[${responseTimestamp}] ❌ 每周排行榜任务启动失败 - 状态码: ${response.status}`);
+    }
+  } catch (error) {
+    const errorTimestamp = new Date().toISOString();
+    console.error(`[${errorTimestamp}] ❌ 每周排行榜任务异常:`, error);
+  }
 }
 
+/**
+ * 触发每月排行榜抓取任务
+ * @param env 环境变量配置
+ */
 async function triggerMonthly(env: Env): Promise<void> {
+  const timestamp = new Date().toISOString();
   const base = env.PRIMARY_API_BASE.replace(/\/$/, '');
-  await callApi(`${base}/?action=monthly`, { method: 'GET' });
+  console.log(`[${timestamp}] 触发每月排行榜抓取任务 - 目标: ${base}/?action=monthly`);
+  
+  try {
+    const response = await callApi(`${base}/?action=monthly`, { method: 'GET' });
+    const responseTimestamp = new Date().toISOString();
+    if (response.ok) {
+      const responseData = await response.json().catch(() => ({}));
+      console.log(`[${responseTimestamp}] ✅ 每月排行榜任务启动成功:`, responseData);
+    } else {
+      console.log(`[${responseTimestamp}] ❌ 每月排行榜任务启动失败 - 状态码: ${response.status}`);
+    }
+  } catch (error) {
+    const errorTimestamp = new Date().toISOString();
+    console.error(`[${errorTimestamp}] ❌ 每月排行榜任务异常:`, error);
+  }
 }
 
 function isCron(event: any): boolean {

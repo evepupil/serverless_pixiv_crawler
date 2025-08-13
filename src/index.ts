@@ -429,6 +429,7 @@ async function batchCrawl(pids: string[], targetNum: number = 1000, popularityTh
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const { method } = req;
+    const timestamp = new Date().toISOString();
     
     // 设置CORS头
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -443,10 +444,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     switch (method) {
       case 'GET':
         const action = req.query.action as string;
+        console.log(`[${timestamp}] GET请求 - action: ${action || 'default'}, query:`, req.query);
         
         if (action === 'status') {
           // 返回服务状态
           try {
+            console.log(`[${timestamp}] 处理status API请求`);
             const statusData = { 
               status: 'running', 
               timestamp: new Date().toISOString(),
@@ -459,7 +462,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 pixivCookie: !!process.env.PIXIV_COOKIE
               }
             };
-            console.log('Status API called, returning:', statusData);
+            console.log(`[${timestamp}] Status API响应:`, statusData);
             res.status(200).json(statusData);
           } catch (error) {
             console.error('Status API error:', error);
@@ -468,16 +471,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         } else if (action === 'stats') {
           // 返回统计信息
           try {
-            console.log('Stats API called');
+            console.log(`[${timestamp}] 处理stats API请求`);
             const stats = await safeDatabaseOperation(async () => {
               const supabase = new SupabaseService();
-              const totalPics = await supabase.getTotalPicsCount();
-              const downloadedPics = await supabase.getDownloadedPicsCount();
-              const avgPopularity = await supabase.getAveragePopularity();
-              return { totalPics, downloadedPics, avgPopularity };
+              return await supabase.getStatsFromView();
             }, { totalPics: 0, downloadedPics: 0, avgPopularity: 0 });
             
-            console.log('Stats API returning:', stats);
+            console.log(`[${timestamp}] Stats API响应:`, stats);
             res.status(200).json(stats);
           } catch (error) {
             console.error('Stats API error:', error);
@@ -485,9 +485,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           }
         } else if (action === 'env-check') {
           // 检查环境变量
+          console.log(`[${timestamp}] 处理env-check API请求`);
           const envCheck = checkEnvironmentVariables();
           const r2Check = checkR2Config();
-          res.status(200).json({ 
+          const response = { 
             valid: envCheck.valid, 
             missing: envCheck.missing, 
             r2Valid: r2Check.valid,
@@ -497,17 +498,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               download: envCheck.valid && r2Check.valid
             },
             timestamp: new Date().toISOString() 
-          });
+          };
+          console.log(`[${timestamp}] Env-check API响应:`, response);
+          res.status(200).json(response);
         } else if (action === 'logs') {
           // 获取日志
           const taskId = req.query.taskId as string;
           const limit = parseInt(req.query.limit as string) || 100;
+          console.log(`[${timestamp}] 处理logs API请求 - taskId: ${taskId}, limit: ${limit}`);
           const logs = logManager.getLogs(taskId, limit);
+          console.log(`[${timestamp}] Logs API响应: 返回${logs.length}条日志`);
           res.status(200).json(logs);
         } else if (action === 'get-pic') {
           // 获取指定PID的图片信息
           const pid = req.query.pid as string;
+          console.log(`[${timestamp}] 处理get-pic API请求 - pid: ${pid}`);
           if (!pid) {
+            console.log(`[${timestamp}] Get-pic API错误: 缺少PID参数`);
             res.status(400).json({ error: '缺少PID参数' });
             return;
           }
@@ -516,31 +523,42 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             const supabase = new SupabaseService();
             const picData = await supabase.getPicByPid(pid);
             if (picData) {
+              console.log(`[${timestamp}] Get-pic API响应: 成功找到PID ${pid}的数据`);
               res.status(200).json({ success: true, data: picData });
             } else {
+              console.log(`[${timestamp}] Get-pic API响应: 未找到PID ${pid}`);
               res.status(404).json({ success: false, error: '未找到指定的PID' });
             }
           } catch (error) {
-            console.error('获取图片信息失败:', error);
+            console.error(`[${timestamp}] Get-pic API错误:`, error);
             res.status(500).json({ success: false, error: '数据库查询失败' });
           }
         } else if (action === 'home') {
           // 获取首页推荐 PID 并最小化入库
+          console.log(`[${timestamp}] 处理home API请求`);
           const headersList = getPixivHeaders();
           const taskId = 'home_' + Date.now();
           const crawler = new PixivCrawler('0', headersList, logManager, taskId, 0);
           const pids = await crawler.getHomeRecommendedPids();
           if (pids && pids.length > 0) {
+            console.log(`[${timestamp}] Home API: 获取到${pids.length}个首页推荐PID`);
             const supabase = new SupabaseService();
             await supabase.upsertMinimalPics(pids);
-            res.status(200).json({ message: '首页推荐已入库', count: pids.length, pids, taskId });
+            const response = { message: '首页推荐已入库', count: pids.length, pids, taskId };
+            console.log(`[${timestamp}] Home API响应:`, response);
+            res.status(200).json(response);
           } else {
-            res.status(200).json({ message: '未提取到PID', count: 0, pids: [], taskId });
+            console.log(`[${timestamp}] Home API: 未提取到PID`);
+            const response = { message: '未提取到PID', count: 0, pids: [], taskId };
+            console.log(`[${timestamp}] Home API响应:`, response);
+            res.status(200).json(response);
           }
         } else if (action === 'random-pids') {
           // 从数据库随机获取指定数量的pid
           const count = parseInt(req.query.count as string) || 10;
+          console.log(`[${timestamp}] 处理random-pids API请求 - count: ${count}`);
           if (count <= 0 || count > 100) {
+            console.log(`[${timestamp}] Random-pids API错误: count参数超出范围 (${count})`);
             res.status(400).json({ error: 'count参数必须在1-100之间' });
             return;
           }
@@ -548,14 +566,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           try {
             const supabase = new SupabaseService();
             const pids = await supabase.getRandomPids(count);
-            res.status(200).json({ 
+            const response = { 
               message: '随机PID获取成功', 
               count: pids.length, 
               pids, 
               timestamp: new Date().toISOString() 
-            });
+            };
+            console.log(`[${timestamp}] Random-pids API响应: 成功获取${pids.length}个随机PID`);
+            res.status(200).json(response);
           } catch (error) {
-            console.error('随机获取PID失败:', error);
+            console.error(`[${timestamp}] Random-pids API错误:`, error);
             res.status(500).json({ 
               error: '随机获取PID失败', 
               message: error instanceof Error ? error.message : '未知错误' 
@@ -565,8 +585,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           // 触发按类型排行榜抓取
           const type = action as 'daily' | 'weekly' | 'monthly';
           const taskId = type + '_' + new Date().toISOString().slice(0, 10) + '_' + Date.now();
+          console.log(`[${timestamp}] 处理${type} API请求 - taskId: ${taskId}`);
           logManager.addLog(`收到${type}排行榜抓取请求`, 'info', taskId);
-          res.status(200).json({ message: `${type} 排行榜任务已启动`, taskId, timestamp: new Date().toISOString() });
+          const response = { message: `${type} 排行榜任务已启动`, taskId, timestamp: new Date().toISOString() };
+          console.log(`[${timestamp}] ${type} API响应:`, response);
+          res.status(200).json(response);
           runRanking(type, taskId).catch(error => {
             logManager.addLog(`${type} 排行榜任务执行失败: ` + (error instanceof Error ? error.message : String(error)), 'error', taskId);
           });
@@ -615,12 +638,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       case 'POST':
         // 启动爬虫任务或下载任务
         const { pid, pids, targetNum = 1000, popularityThreshold, action: postAction } = req.body;
+        console.log(`[${timestamp}] POST请求 - action: ${postAction || 'crawler'}, body:`, req.body);
 
         // 处理下载请求
         if (postAction === 'download') {
           const { downloadPid, downloadPids } = req.body;
+          console.log(`[${timestamp}] 处理download请求 - downloadPid: ${downloadPid}, downloadPids: ${downloadPids?.length || 0}个`);
           
           if (!downloadPid && !downloadPids) {
+            console.log(`[${timestamp}] Download请求错误: 缺少必要参数`);
             res.status(400).json({ error: '下载请求缺少必要的参数: downloadPid 或 downloadPids' });
             return;
           }
@@ -654,14 +680,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             if (downloadPid) {
               // 单个PID下载
               const taskId = 'download_single_' + downloadPid + '_' + Date.now();
+              console.log(`[${timestamp}] 启动单个PID下载任务 - pid: ${downloadPid}, taskId: ${taskId}`);
               logManager.addLog(`收到单个PID下载请求: ${downloadPid}`, 'info', taskId);
               
-              res.status(200).json({ 
+              const response = { 
                 message: '下载任务已启动', 
                 pid: downloadPid,
                 taskId,
                 timestamp: new Date().toISOString()
-              });
+              };
+              console.log(`[${timestamp}] Download API响应:`, response);
+              res.status(200).json(response);
               
               // 异步执行下载任务
               const downloader = new PixivDownloader(headersList[0], r2Config, logManager, taskId);
@@ -678,15 +707,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             } else if (downloadPids && Array.isArray(downloadPids)) {
               // 批量PID下载
               const taskId = 'download_batch_' + Date.now();
+              console.log(`[${timestamp}] 启动批量PID下载任务 - count: ${downloadPids.length}, taskId: ${taskId}`);
               logManager.addLog(`收到批量PID下载请求，共${downloadPids.length}个PID`, 'info', taskId);
               
-              res.status(200).json({ 
+              const response = { 
                 message: '批量下载任务已启动', 
                 pids: downloadPids,
                 count: downloadPids.length,
                 taskId,
                 timestamp: new Date().toISOString()
-              });
+              };
+              console.log(`[${timestamp}] Batch Download API响应:`, response);
+              res.status(200).json(response);
               
               // 异步执行批量下载任务
               const downloader = new PixivDownloader(headersList[0], r2Config, logManager, taskId);
@@ -709,7 +741,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
 
         // 处理爬虫任务
+        console.log(`[${timestamp}] 处理爬虫任务 - pid: ${pid}, pids: ${pids?.length || 0}个`);
         if (!pid && !pids) {
+          console.log(`[${timestamp}] 爬虫请求错误: 缺少必要参数`);
           res.status(400).json({ error: '缺少必要的参数: pid 或 pids' });
           return;
         }
@@ -733,16 +767,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (pid) {
           // 单个PID爬取
           const taskId = 'single_' + pid + '_' + Date.now();
+          console.log(`[${timestamp}] 启动单个PID爬虫任务 - pid: ${pid}, targetNum: ${targetNum}, threshold: ${threshold}, taskId: ${taskId}`);
           logManager.addLog(`收到单个PID爬取请求: ${pid}，目标数量: ${targetNum}，热度阈值: ${threshold}`, 'info', taskId);
           
-          res.status(200).json({ 
+          const response = { 
             message: '爬虫任务已启动', 
             pid, 
             targetNum,
             popularityThreshold: threshold,
             taskId,
             timestamp: new Date().toISOString()
-          });
+          };
+          console.log(`[${timestamp}] Crawler API响应:`, response);
+          res.status(200).json(response);
           
           // 异步执行爬虫任务，传递正确的TaskID
           runCrawler(pid, targetNum, threshold, taskId).catch(error => {
@@ -752,9 +789,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         } else if (pids && Array.isArray(pids)) {
           // 批量PID爬取
           const taskId = 'batch_' + Date.now();
+          console.log(`[${timestamp}] 启动批量PID爬虫任务 - count: ${pids.length}, targetNum: ${targetNum}, threshold: ${threshold}, taskId: ${taskId}`);
           logManager.addLog(`收到批量PID爬取请求，共${pids.length}个PID，目标数量: ${targetNum}，热度阈值: ${threshold}`, 'info', taskId);
           
-          res.status(200).json({ 
+          const response = { 
             message: '批量爬虫任务已启动', 
             pids, 
             targetNum,
@@ -762,7 +800,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             count: pids.length,
             taskId,
             timestamp: new Date().toISOString()
-          });
+          };
+          console.log(`[${timestamp}] Batch Crawler API响应:`, response);
+          res.status(200).json(response);
           
           // 异步执行批量爬虫任务，传递正确的TaskID
           batchCrawl(pids, targetNum, threshold, taskId).catch(error => {
