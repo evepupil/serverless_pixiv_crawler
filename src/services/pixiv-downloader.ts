@@ -1,9 +1,9 @@
 import { S3Client, PutObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 import axios, { AxiosInstance, AxiosResponse } from 'axios';
-import * as cheerio from 'cheerio';
 import { 
   PixivHeaders, 
   PixivIllustPagesResponse, 
+  PixivIllustInfo,
   DownloadResult, 
   R2Config 
 } from '../types';
@@ -91,25 +91,19 @@ export class PixivDownloader {
    */
   private async getArtistName(pid: string): Promise<string | null> {
     try {
-      const artworksUrl = `https://www.pixiv.net/artworks/${pid}`;
-      const response = await this.httpClient.get(artworksUrl);
+      // 使用新的API方法获取插画信息，更加高效
+      const response = await this.httpClient.get(
+        `https://www.pixiv.net/ajax/illust/${pid}`
+      );
+
+      const resJson: PixivIllustInfo = response.data;
       
-      const $ = cheerio.load(response.data);
-      const metaTags = $('meta').toArray();
-      
-      // 查找包含userName的meta标签
-      for (const meta of metaTags) {
-        const content = $(meta).attr('content');
-        if (content) {
-          const userNameMatch = content.match(/"userName":"([^"]+)"/);
-          if (userNameMatch) {
-            const userName = userNameMatch[1];
-            // 清理文件名中的非法字符
-            const sanitizedName = userName.replace(/[/\\| ]/g, '_');
-            this.logManager.addLog(`获取到画师名字: ${userName}`, 'info', this.taskId);
-            return sanitizedName;
-          }
-        }
+      if (resJson.error === false && resJson.body && resJson.body.userName) {
+        const userName = resJson.body.userName;
+        // 清理文件名中的非法字符
+        const sanitizedName = userName.replace(/[/\\| ]/g, '_');
+        this.logManager.addLog(`获取到画师名字: ${userName}`, 'info', this.taskId);
+        return sanitizedName;
       }
       
       this.logManager.addLog(`未找到插画 ${pid} 的画师名字`, 'warning', this.taskId);

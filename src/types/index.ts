@@ -1,6 +1,8 @@
 export interface PixivIllustInfo {
   body: {
     userId: string;
+    title: string;
+    userName: string;
     tags: {
       tags: Array<{
         tag: string;
@@ -67,6 +69,9 @@ export interface IllustData {
 
 export interface DatabasePic {
   pid: string;
+  title?: string; // 插画标题
+  author_id?: string; // 作者ID
+  author_name?: string; // 作者名称
   download_time?: string;
   tag: string;
   good: number;
