@@ -274,6 +274,7 @@ export class PixivCrawler {
       );
 
       const resJson: PixivUserRecommendResponse = response.data;
+      this.logManager.addLog(`获取用户：${authorId}推荐列表，原始json为${JSON.stringify(resJson)}`, 'info', this.taskId);
       
       if (resJson.error === false) {
         this.logManager.addLog(`获取用户：${authorId}推荐列表成功！`, 'info', this.taskId);
@@ -288,68 +289,195 @@ export class PixivCrawler {
     }
   }
 
-  private async reGetAuthor(userIds: string[], targetNum: number): Promise<string[]> {
+  /**
+   * 递归获取作者推荐，带有深度限制和错误处理
+   * @param userIds 用户ID列表
+   * @param targetNum 目标数量
+   * @param depth 当前递归深度
+   * @param maxDepth 最大递归深度
+   * @param errorCount 连续错误计数
+   * @param maxErrors 最大连续错误数
+   */
+  private async reGetAuthor(
+    userIds: string[], 
+    targetNum: number, 
+    depth: number = 0, 
+    maxDepth: number = 5,
+    errorCount: number = 0,
+    maxErrors: number = 10
+  ): Promise<string[]> {
+    // 检查是否达到目标数量
     if (userIds.length >= targetNum) {
       return userIds;
     }
 
-    for (const user of userIds) {
-      const resJson = await this.getAuthorRecommend(user);
-      if (resJson) {
-        const addUserIds = getAuthorRecommendPids(resJson as any);
-        userIds.push(...addUserIds);
-        
-        if (userIds.length >= targetNum) {
-          return userIds;
+    // 检查递归深度限制
+    if (depth >= maxDepth) {
+      this.logManager.addLog(`递归获取作者推荐达到最大深度限制(${maxDepth})，停止递归`, 'warning', this.taskId);
+      return userIds;
+    }
+
+    // 检查连续错误数限制
+    if (errorCount >= maxErrors) {
+      this.logManager.addLog(`连续错误数达到限制(${maxErrors})，停止递归`, 'warning', this.taskId);
+      return userIds;
+    }
+
+    let currentErrorCount = errorCount;
+    let hasNewData = false;
+    const originalLength = userIds.length;
+    const processedUsers = userIds.slice(); // 使用副本避免在迭代中修改数组
+
+    for (const user of processedUsers) {
+      try {
+        const resJson = await this.getAuthorRecommend(user);
+        if (resJson) {
+          const addUserIds = getAuthorRecommendPids(resJson as any);
+          if (addUserIds && addUserIds.length > 0) {
+            // 去重处理
+            const uniqueUserIds = addUserIds.filter(id => !userIds.includes(id));
+            if (uniqueUserIds.length > 0) {
+              userIds.push(...uniqueUserIds);
+              hasNewData = true;
+              currentErrorCount = 0; // 重置错误计数
+              
+              if (userIds.length >= targetNum) {
+                return userIds;
+              }
+            }
+          }
+        } else {
+          currentErrorCount++;
         }
+      } catch (error) {
+        currentErrorCount++;
+        this.logManager.addLog(`获取用户${user}推荐时出错: ${error instanceof Error ? error.message : String(error)}`, 'warning', this.taskId);
       }
     }
 
-    return this.reGetAuthor(userIds, targetNum);
+    // 如果没有新数据且已经尝试了所有用户，停止递归
+    if (!hasNewData || userIds.length === originalLength) {
+      this.logManager.addLog(`没有获取到新的用户推荐数据，停止递归`, 'info', this.taskId);
+      return userIds;
+    }
+
+    // 递归调用，增加深度
+    return this.reGetAuthor(userIds, targetNum, depth + 1, maxDepth, currentErrorCount, maxErrors);
   }
 
-  private async reGetIllust(pids: string[], targetNum: number): Promise<string[]> {
+  /**
+   * 递归获取插画推荐，带有深度限制和错误处理
+   * @param pids 插画ID列表
+   * @param targetNum 目标数量
+   * @param depth 当前递归深度
+   * @param maxDepth 最大递归深度
+   * @param errorCount 连续错误计数
+   * @param maxErrors 最大连续错误数
+   */
+  private async reGetIllust(
+    pids: string[], 
+    targetNum: number, 
+    depth: number = 0, 
+    maxDepth: number = 5,
+    errorCount: number = 0,
+    maxErrors: number = 10
+  ): Promise<string[]> {
+    // 检查是否达到目标数量
     if (pids.length >= targetNum) {
       return pids;
     }
 
+    // 检查递归深度限制
+    if (depth >= maxDepth) {
+      this.logManager.addLog(`递归获取插画推荐达到最大深度限制(${maxDepth})，停止递归`, 'warning', this.taskId);
+      return pids;
+    }
+
+    // 检查连续错误数限制
+    if (errorCount >= maxErrors) {
+      this.logManager.addLog(`连续错误数达到限制(${maxErrors})，停止递归`, 'warning', this.taskId);
+      return pids;
+    }
+
     const seenPids = new Set(pids); // 使用集合避免重复
+    let currentErrorCount = errorCount;
+    let hasNewData = false;
+    const originalLength = pids.length;
+    const processedPids = pids.slice(); // 使用副本避免在迭代中修改数组
 
-    for (const pid of pids) {
+    for (const pid of processedPids) {
       try {
-        const resJson = await this.getIllustRecommend(pid);
-        if (resJson) {
-          const illustInfo = await this.getIllustInfo(pid);
-          if (illustInfo) {
-            const userId = getIllustUser(illustInfo);
-            if (userId) {
-              const userRecommendJson = await this.getAuthorRecommend(userId);
-              if (userRecommendJson) {
-                const userRecommendPidList = getAuthorRecommendPids(userRecommendJson as any);
-                const addPids = getIllustRecommendPids(resJson as any);
-                addPids.push(...userRecommendPidList);
-
-                for (const newPid of addPids) {
-                  if (!seenPids.has(newPid)) {
-                    pids.push(newPid);
-                    seenPids.add(newPid);
-                  }
-                }
-
-                if (pids.length >= targetNum) {
-                  return pids;
-                }
+        let pidHasNewData = false;
+        let pidErrorCount = 0;
+        
+        // 1. 处理插画推荐
+        const illustRecommendJson = await this.getIllustRecommend(pid);
+        if (illustRecommendJson) {
+          const illustRecommendPids = getIllustRecommendPids(illustRecommendJson as any);
+          if (illustRecommendPids && illustRecommendPids.length > 0) {
+            for (const newPid of illustRecommendPids) {
+              if (!seenPids.has(newPid)) {
+                pids.push(newPid);
+                seenPids.add(newPid);
+                pidHasNewData = true;
               }
             }
           }
+        } else {
+          pidErrorCount++;
+        }
+
+        // 2. 处理用户推荐（独立于插画推荐）
+        const illustInfo = await this.getIllustInfo(pid);
+        if (illustInfo) {
+          const userId = getIllustUser(illustInfo);
+          if (userId) {
+            const userRecommendJson = await this.getAuthorRecommend(userId);
+            if (userRecommendJson) {
+              const userRecommendPids = getAuthorRecommendPids(userRecommendJson as any);
+              if (userRecommendPids && userRecommendPids.length > 0) {
+                for (const newPid of userRecommendPids) {
+                  if (!seenPids.has(newPid)) {
+                    pids.push(newPid);
+                    seenPids.add(newPid);
+                    pidHasNewData = true;
+                  }
+                }
+              }
+            } else {
+              pidErrorCount++;
+              this.logManager.addLog(`获取用户${userId}推荐异常: Request failed with status code 400`, 'warning', this.taskId);
+            }
+          }
+        }
+
+        // 只有当插画推荐和用户推荐都失败时才增加错误计数
+        if (pidHasNewData) {
+          hasNewData = true;
+          currentErrorCount = 0; // 重置错误计数
+        } else if (pidErrorCount >= 2) {
+          // 两个推荐都失败才算错误
+          currentErrorCount++;
+        }
+
+        if (pids.length >= targetNum) {
+          return pids;
         }
       } catch (error) {
+        currentErrorCount++;
         this.logManager.addLog(`递归获取插画pid：${pid}出现异常：${error}，自动跳过`, 'warning', this.taskId);
         continue;
       }
     }
 
-    return this.reGetIllust(pids, targetNum);
+    // 如果没有新数据且已经尝试了所有pid，停止递归
+    if (!hasNewData || pids.length === originalLength) {
+      this.logManager.addLog(`没有获取到新的插画推荐数据，停止递归`, 'info', this.taskId);
+      return pids;
+    }
+
+    // 递归调用，增加深度
+    return this.reGetIllust(pids, targetNum, depth + 1, maxDepth, currentErrorCount, maxErrors);
   }
 
   async getPidsFilterByTags(tags: string[], pids: string[]): Promise<string[]> {
