@@ -258,7 +258,7 @@ export class PixivDownloader {
         // 生成文件名
         const artistPrefix = artistName ? `@${artistName}` : '';
         const filename = this.sanitizeFilename(`${artistPrefix} pid_${pid}.${extension}`);
-        const r2Key = `pixiv/${pid}/${filename}`;
+        const r2Key = `${this.r2Config.bucketName}/${pid}/${filename}`;
         this.logManager.addLog(`生成R2存储路径: ${r2Key}`, 'info', this.taskId);
 
         // 检查文件是否已存在
@@ -286,7 +286,7 @@ export class PixivDownloader {
         const uploadSuccess = await this.uploadToR2(r2Key, imageBuffer, contentType);
         if (uploadSuccess) {
           // 更新数据库
-          const r2Url = `https://pixiv-bucket.acgotaku.com/${this.r2Config.bucketName}/${r2Key}`;
+          const r2Url = `https://pixiv-bucket.acgotaku.com/${r2Key}`;
           this.logManager.addLog(`R2上传成功，更新数据库记录，R2 URL: ${r2Url}`, 'info', this.taskId);
           await this.supabase.updatePicDownload(pid, r2Url, imageUrl, imageBuffer.length);
           

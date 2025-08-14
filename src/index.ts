@@ -533,6 +533,57 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             console.error(`[${timestamp}] Get-pic API错误:`, error);
             res.status(500).json({ success: false, error: '数据库查询失败' });
           }
+        } else if (action === 'proxy-image') {
+          // 代理访问指定PID的图片
+          const pid = req.query.pid as string;
+          const size = req.query.size as string; // 新增：支持指定尺寸
+          console.log(`[${timestamp}] 处理proxy-image API请求 - pid: ${pid}${size ? `, size: ${size}` : ''}`);
+          if (!pid) {
+            console.log(`[${timestamp}] Proxy-image API错误: 缺少PID参数`);
+            res.status(400).json({ error: '缺少PID参数' });
+            return;
+          }
+          
+          try {
+            // 检查环境变量配置
+            if (!checkEnvironmentVariables().valid) {
+              res.status(500).json({ error: '环境变量配置不完整，无法使用代理功能' });
+              return;
+            }
+            
+            const headersList = getPixivHeaders();
+            const taskId = 'proxy_' + pid + '_' + Date.now();
+            
+            // 使用PixivProxy服务代理访问图片
+            const { PixivProxy } = await import('./services/pixiv-proxy');
+            const proxy = new PixivProxy(headersList[0], logManager, taskId);
+            
+            const result = await proxy.proxyImage(pid, size);
+            
+            if (result.success && result.imageBuffer && result.contentType) {
+              console.log(`[${timestamp}] Proxy-image API响应: 成功代理PID ${pid}${size ? ` 尺寸 ${size}` : ''}的图片`);
+              
+              // 设置响应头
+              res.setHeader('Content-Type', result.contentType);
+              res.setHeader('Cache-Control', 'public, max-age=3600'); // 1小时缓存
+              res.setHeader('Access-Control-Allow-Origin', '*');
+              
+              // 返回图片数据
+              res.status(200).send(result.imageBuffer);
+            } else {
+              console.log(`[${timestamp}] Proxy-image API响应: 代理PID ${pid}${size ? ` 尺寸 ${size}` : ''}失败 - ${result.error}`);
+              res.status(404).json({ 
+                success: false, 
+                error: result.error || '图片代理访问失败' 
+              });
+            }
+          } catch (error) {
+            console.error(`[${timestamp}] Proxy-image API错误:`, error);
+            res.status(500).json({ 
+              success: false, 
+              error: '图片代理访问失败: ' + (error instanceof Error ? error.message : String(error)) 
+            });
+          }
         } else if (action === 'home') {
           // 获取首页推荐 PID 并最小化入库
           console.log(`[${timestamp}] 处理home API请求`);
