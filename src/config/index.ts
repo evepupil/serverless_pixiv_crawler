@@ -60,14 +60,6 @@ export function getPixivHeaders(): PixivHeaders[] {
     'Sec-Fetch-Site': 'same-origin'
   };
 
-  // 如果配置了多个cookie，可以分割成多个请求头
-  const cookies = cookie.split(';').map(c => c.trim());
-  if (cookies.length > 1) {
-    return cookies.map(c => ({
-      ...baseHeaders,
-      'cookie': c
-    }));
-  }
 
   return [baseHeaders];
 }

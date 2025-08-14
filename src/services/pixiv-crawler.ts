@@ -274,10 +274,11 @@ export class PixivCrawler {
 
   async getAuthorRecommend(authorId: string): Promise<PixivUserRecommendResponse | null> {
     try {
+      this.logManager.addLog(`获取用户：${authorId}推荐列表，url为https://www.pixiv.net/ajax/user/${authorId}/recommends?userNum=30&workNum=5&isR18=false&lang=zh`, 'info', this.taskId);
+      this.logManager.addLog(`获取用户：${authorId}推荐列表，headers为${JSON.stringify(this.headers)}`, 'info', this.taskId);
       const response = await this.httpClient.get(
         `https://www.pixiv.net/ajax/user/${authorId}/recommends?userNum=30&workNum=5&isR18=false&lang=zh`
       );
-
       const resJson: PixivUserRecommendResponse = response.data;
       this.logManager.addLog(`获取用户：${authorId}推荐列表，原始json为${JSON.stringify(resJson)}`, 'info', this.taskId);
       
