@@ -3,6 +3,8 @@ export interface Env {
   WORKER_API_BASES?: string; // 从节点，逗号分隔
   TEN_MIN_TARGET_NUM?: string;
   TEN_MIN_THRESHOLD?: string;
+  SUPABASE_URL?: string; // Supabase项目URL
+  SUPABASE_SERVICE_ROLE_KEY?: string; // Supabase服务角色密钥
 }
 
 async function callApi(url: string, options?: RequestInit): Promise<Response> {
@@ -211,7 +213,6 @@ async function triggerMonthly(env: Env): Promise<void> {
  * @param env 环境变量配置
  */
 async function triggerIllustRecommendTasks(env: Env): Promise<void> {
-  const primary = env.PRIMARY_API_BASE.replace(/\/$/, '');
   const workersRaw = (env.WORKER_API_BASES || '').trim();
   const workerBases = workersRaw ? workersRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
   if (workerBases.length === 0) {
@@ -223,18 +224,31 @@ async function triggerIllustRecommendTasks(env: Env): Promise<void> {
   console.log(`[${timestamp}] 开始获取未爬取插画推荐任务 - 节点数量: ${workerBases.length}`);
 
   try {
-    // 从主节点获取未爬取插画推荐的任务
-    const response = await callApi(`${primary}/?action=get-uncrawled-tasks&type=illust_recommend&limit=${workerBases.length}`, { method: 'GET' });
+    // 初始化Supabase客户端
+    const { createClient } = await import('@supabase/supabase-js');
+    const supabaseUrl = env.SUPABASE_URL;
+    const supabaseKey = env.SUPABASE_SERVICE_ROLE_KEY;
     
-    if (!response.ok) {
-      console.log(`❌ 获取插画推荐任务失败 - 状态码: ${response.status}`);
+    if (!supabaseUrl || !supabaseKey) {
+      console.error('❌ 缺少Supabase环境变量');
       return;
     }
-
-    const responseData = await response.json().catch(() => ({ tasks: [] }));
-    const tasks = Array.isArray(responseData?.tasks) ? responseData.tasks : [];
     
-    if (tasks.length === 0) {
+    const supabase = createClient(supabaseUrl, supabaseKey);
+    
+    // 直接查询pic_task表获取未爬取插画推荐的任务
+    const { data: tasks, error } = await supabase
+      .from('pic_task')
+      .select('pid')
+      .eq('illust_recommend_crawled', false)
+      .limit(workerBases.length);
+    
+    if (error) {
+      console.error(`❌ 查询插画推荐任务失败:`, error);
+      return;
+    }
+    
+    if (!tasks || tasks.length === 0) {
       console.log('暂无未爬取的插画推荐任务');
       return;
     }
@@ -285,7 +299,6 @@ async function triggerIllustRecommendTasks(env: Env): Promise<void> {
  * @param env 环境变量配置
  */
 async function triggerAuthorRecommendTasks(env: Env): Promise<void> {
-  const primary = env.PRIMARY_API_BASE.replace(/\/$/, '');
   const workersRaw = (env.WORKER_API_BASES || '').trim();
   const workerBases = workersRaw ? workersRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
   if (workerBases.length === 0) {
@@ -297,18 +310,31 @@ async function triggerAuthorRecommendTasks(env: Env): Promise<void> {
   console.log(`[${timestamp}] 开始获取未爬取作者推荐任务 - 节点数量: ${workerBases.length}`);
 
   try {
-    // 从主节点获取未爬取作者推荐的任务
-    const response = await callApi(`${primary}/?action=get-uncrawled-tasks&type=author_recommend&limit=${workerBases.length}`, { method: 'GET' });
+    // 初始化Supabase客户端
+    const { createClient } = await import('@supabase/supabase-js');
+    const supabaseUrl = env.SUPABASE_URL;
+    const supabaseKey = env.SUPABASE_SERVICE_ROLE_KEY;
     
-    if (!response.ok) {
-      console.log(`❌ 获取作者推荐任务失败 - 状态码: ${response.status}`);
+    if (!supabaseUrl || !supabaseKey) {
+      console.error('❌ 缺少Supabase环境变量');
       return;
     }
-
-    const responseData = await response.json().catch(() => ({ tasks: [] }));
-    const tasks = Array.isArray(responseData?.tasks) ? responseData.tasks : [];
     
-    if (tasks.length === 0) {
+    const supabase = createClient(supabaseUrl, supabaseKey);
+    
+    // 直接查询pic_task表获取未爬取作者推荐的任务
+    const { data: tasks, error } = await supabase
+      .from('pic_task')
+      .select('pid')
+      .eq('author_recommend_crawled', false)
+      .limit(workerBases.length);
+    
+    if (error) {
+      console.error(`❌ 查询作者推荐任务失败:`, error);
+      return;
+    }
+    
+    if (!tasks || tasks.length === 0) {
       console.log('暂无未爬取的作者推荐任务');
       return;
     }
@@ -359,7 +385,6 @@ async function triggerAuthorRecommendTasks(env: Env): Promise<void> {
  * @param env 环境变量配置
  */
 async function triggerDetailInfoTasks(env: Env): Promise<void> {
-  const primary = env.PRIMARY_API_BASE.replace(/\/$/, '');
   const workersRaw = (env.WORKER_API_BASES || '').trim();
   const workerBases = workersRaw ? workersRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
   if (workerBases.length === 0) {
@@ -371,18 +396,31 @@ async function triggerDetailInfoTasks(env: Env): Promise<void> {
   console.log(`[${timestamp}] 开始获取未爬取详细信息任务 - 节点数量: ${workerBases.length}`);
 
   try {
-    // 从主节点获取未爬取详细信息的任务
-    const response = await callApi(`${primary}/?action=get-uncrawled-tasks&type=detail&limit=${workerBases.length}`, { method: 'GET' });
+    // 初始化Supabase客户端
+    const { createClient } = await import('@supabase/supabase-js');
+    const supabaseUrl = env.SUPABASE_URL;
+    const supabaseKey = env.SUPABASE_SERVICE_ROLE_KEY;
     
-    if (!response.ok) {
-      console.log(`❌ 获取详细信息任务失败 - 状态码: ${response.status}`);
+    if (!supabaseUrl || !supabaseKey) {
+      console.error('❌ 缺少Supabase环境变量');
       return;
     }
-
-    const responseData = await response.json().catch(() => ({ tasks: [] }));
-    const tasks = Array.isArray(responseData?.tasks) ? responseData.tasks : [];
     
-    if (tasks.length === 0) {
+    const supabase = createClient(supabaseUrl, supabaseKey);
+    
+    // 直接查询pic_task表获取未爬取详细信息的任务
+    const { data: tasks, error } = await supabase
+      .from('pic_task')
+      .select('pid')
+      .eq('detail_crawled', false)
+      .limit(workerBases.length);
+    
+    if (error) {
+      console.error(`❌ 查询详细信息任务失败:`, error);
+      return;
+    }
+    
+    if (!tasks || tasks.length === 0) {
       console.log('暂无未爬取的详细信息任务');
       return;
     }
