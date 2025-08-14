@@ -17,6 +17,9 @@ import {
   getAuthorRecommendPids,
   getIllustPopularity,
   getIllustData,
+  getIllustTitle,
+  getIllustAuthorId,
+  getIllustAuthorName,
   sleep,
   getRandomDelay,
   formatDateTime
@@ -529,6 +532,7 @@ export class PixivCrawler {
           const popularity = getIllustPopularity(info);
           const roundedPopularity = Math.round(popularity * 100) / 100;
 
+<<<<<<< HEAD
           const viewJson = getIllustData(info);
           if (viewJson) {
             const illustTags = getIllustTags(info);
@@ -537,17 +541,35 @@ export class PixivCrawler {
             this.logManager.addLog(`tag:${JSON.stringify(illustTags)}`, 'info', this.taskId);
             console.log(`tag:${JSON.stringify(illustTags)}`);
             const tagsString = illustTags.join(', ');
+=======
+                      const viewJson = getIllustData(info);
+            if (viewJson) {
+              const illustTags = getIllustTags(info);
+              const title = getIllustTitle(info);
+              const authorId = getIllustAuthorId(info);
+              const authorName = getIllustAuthorName(info);
+              
+              this.logManager.addLog(`view_json:${JSON.stringify(viewJson)}`, 'info', this.taskId);
+              this.logManager.addLog(`tag:${JSON.stringify(illustTags)}`, 'info', this.taskId);
+              this.logManager.addLog(`title:${title}`, 'info', this.taskId);
+              this.logManager.addLog(`author_id:${authorId}, author_name:${authorName}`, 'info', this.taskId);
 
-            const picData: DatabasePic = {
-              pid: firstPid,
-              tag: tagsString,
-              good: viewJson.like,
-              star: viewJson.bookmark,
-              view: viewJson.view,
-              image_path: '',
-              image_url: '',
-              popularity: roundedPopularity
-            };
+              const tagsString = illustTags.join(', ');
+>>>>>>> 80a336b85ed56c89107bafb9d0f72e8377a06856
+
+              const picData: DatabasePic = {
+                pid: firstPid,
+                title: title || undefined,
+                author_id: authorId || undefined,
+                author_name: authorName || undefined,
+                tag: tagsString,
+                good: viewJson.like,
+                star: viewJson.bookmark,
+                view: viewJson.view,
+                image_path: '',
+                image_url: '',
+                popularity: roundedPopularity
+              };
 
             await this.supabase.createPic(picData);
             popularityCount++;

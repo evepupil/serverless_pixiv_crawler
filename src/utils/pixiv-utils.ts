@@ -119,4 +119,28 @@ export function getRandomDelay(min: number, max: number): number {
 
 export function formatDateTime(date: Date): string {
   return date.toISOString().slice(0, 19).replace('T', ' ');
+}
+
+// 获取插画标题
+export function getIllustTitle(infoJson: PixivIllustInfo): string | null {
+  if (typeof infoJson.body === 'object' && infoJson.body.title) {
+    return infoJson.body.title;
+  }
+  return null;
+}
+
+// 获取作者ID
+export function getIllustAuthorId(infoJson: PixivIllustInfo): string | null {
+  if (typeof infoJson.body === 'object' && infoJson.body.userId) {
+    return infoJson.body.userId;
+  }
+  return null;
+}
+
+// 获取作者名称
+export function getIllustAuthorName(infoJson: PixivIllustInfo): string | null {
+  if (typeof infoJson.body === 'object' && infoJson.body.userName) {
+    return infoJson.body.userName;
+  }
+  return null;
 } 

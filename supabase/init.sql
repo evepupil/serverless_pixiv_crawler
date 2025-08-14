@@ -4,6 +4,9 @@
 -- 创建Pic表
 CREATE TABLE IF NOT EXISTS pic (
     pid VARCHAR(255) PRIMARY KEY,
+    title TEXT, -- 插画标题
+    author_id VARCHAR(255), -- 作者ID
+    author_name VARCHAR(255), -- 作者名称
     download_time VARCHAR(255),
     tag TEXT,
     good INTEGER,
@@ -27,6 +30,9 @@ CREATE INDEX IF NOT EXISTS idx_pic_popularity ON pic(popularity DESC);
 CREATE INDEX IF NOT EXISTS idx_pic_download_time ON pic(download_time);
 CREATE INDEX IF NOT EXISTS idx_pic_wx_name ON pic(wx_name);
 CREATE INDEX IF NOT EXISTS idx_pic_unfit ON pic(unfit);
+CREATE INDEX IF NOT EXISTS idx_pic_author_id ON pic(author_id); -- 作者ID索引
+CREATE INDEX IF NOT EXISTS idx_pic_author_name ON pic(author_name); -- 作者名称索引
+CREATE INDEX IF NOT EXISTS idx_pic_title ON pic USING GIN(to_tsvector('english', title)); -- 标题全文搜索索引
 
 -- 创建全文搜索索引
 CREATE INDEX IF NOT EXISTS idx_pic_tag_fulltext ON pic USING GIN(to_tsvector('english', tag));
@@ -49,6 +55,7 @@ SELECT
     COUNT(*) as total_pics,
     COUNT(CASE WHEN image_path IS NOT NULL AND image_path != '' THEN 1 END) as downloaded_pics,
     COUNT(CASE WHEN wx_name IS NOT NULL AND wx_name != '' THEN 1 END) as uploaded_pics,
+    COUNT(DISTINCT author_id) as unique_authors,
     AVG(popularity) as avg_popularity,
     MAX(popularity) as max_popularity,
     MIN(popularity) as min_popularity
@@ -56,10 +63,10 @@ FROM pic;
 
 -- 创建函数用于标签搜索
 CREATE OR REPLACE FUNCTION search_pics_by_tags(search_tags TEXT[], limit_count INTEGER DEFAULT 10)
-RETURNS TABLE(pid VARCHAR, tag TEXT, popularity DECIMAL, good INTEGER, star INTEGER, view INTEGER) AS $$
+RETURNS TABLE(pid VARCHAR, title TEXT, author_name VARCHAR, tag TEXT, popularity DECIMAL, good INTEGER, star INTEGER, view INTEGER) AS $$
 BEGIN
     RETURN QUERY
-    SELECT p.pid, p.tag, p.popularity, p.good, p.star, p.view
+    SELECT p.pid, p.title, p.author_name, p.tag, p.popularity, p.good, p.star, p.view
     FROM pic p
     WHERE p.unfit = FALSE
     AND (
@@ -116,10 +123,10 @@ CREATE TRIGGER update_ranking_updated_at BEFORE UPDATE ON ranking FOR EACH ROW E
 
 -- 创建函数用于获取随机图片
 CREATE OR REPLACE FUNCTION get_random_pics_by_tags(search_tags TEXT[], limit_count INTEGER DEFAULT 6)
-RETURNS TABLE(pid VARCHAR, tag TEXT, popularity DECIMAL) AS $$
+RETURNS TABLE(pid VARCHAR, title TEXT, author_name VARCHAR, tag TEXT, popularity DECIMAL) AS $$
 BEGIN
     RETURN QUERY
-    SELECT p.pid, p.tag, p.popularity
+    SELECT p.pid, p.title, p.author_name, p.tag, p.popularity
     FROM pic p
     WHERE p.unfit = FALSE
     AND (
