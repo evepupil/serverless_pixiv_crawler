@@ -412,7 +412,7 @@ async function triggerDetailInfoTasks(env: Env): Promise<void> {
     const { data: tasks, error } = await supabase
       .from('pic_task')
       .select('pid')
-      .eq('detail_crawled', false)
+      .eq('detail_info_crawled', false)
       .limit(workerBases.length);
     
     if (error) {
