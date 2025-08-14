@@ -79,6 +79,47 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- 创建函数用于随机获取PID
+CREATE OR REPLACE FUNCTION get_random_pids(limit_count INTEGER DEFAULT 10)
+RETURNS TABLE(pid VARCHAR) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT p.pid
+    FROM pic p
+    WHERE p.unfit = FALSE
+    ORDER BY RANDOM()
+    LIMIT limit_count;
+END;
+$$ LANGUAGE plpgsql;
+
+-- 创建pic_task表用于跟踪爬取任务状态
+CREATE TABLE IF NOT EXISTS pic_task (
+    pid VARCHAR(255) PRIMARY KEY,
+    -- 爬取状态标志位
+    illust_recommend_crawled BOOLEAN DEFAULT FALSE, -- 是否已爬取插画推荐
+    author_recommend_crawled BOOLEAN DEFAULT FALSE, -- 是否已爬取作者推荐
+    detail_info_crawled BOOLEAN DEFAULT FALSE, -- 是否已爬取详细信息
+    -- 时间戳记录
+    illust_recommend_time TIMESTAMP WITH TIME ZONE, -- 插画推荐爬取时间
+    author_recommend_time TIMESTAMP WITH TIME ZONE, -- 作者推荐爬取时间
+    detail_info_time TIMESTAMP WITH TIME ZONE, -- 详细信息爬取时间
+    -- 统计信息
+    illust_recommend_count INTEGER DEFAULT 0, -- 获取到的插画推荐数量
+    author_recommend_count INTEGER DEFAULT 0, -- 获取到的作者推荐数量
+    -- 元数据
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 为pic_task表创建索引
+CREATE INDEX IF NOT EXISTS idx_pic_task_illust_recommend ON pic_task(illust_recommend_crawled);
+CREATE INDEX IF NOT EXISTS idx_pic_task_author_recommend ON pic_task(author_recommend_crawled);
+CREATE INDEX IF NOT EXISTS idx_pic_task_detail_info ON pic_task(detail_info_crawled);
+CREATE INDEX IF NOT EXISTS idx_pic_task_created_at ON pic_task(created_at);
+
+-- 为pic_task表添加更新时间触发器
+CREATE TRIGGER update_pic_task_updated_at BEFORE UPDATE ON pic_task FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
 -- 创建排行类型枚举（daily, weekly, monthly）
 DO $$
 BEGIN

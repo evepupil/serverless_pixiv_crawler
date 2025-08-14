@@ -581,6 +581,120 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               message: error instanceof Error ? error.message : '未知错误' 
             });
           }
+        } else if (action === 'illust-recommend-pids') {
+          // 获取插画推荐PID列表
+          const pid = req.query.pid as string;
+          const targetNum = parseInt(req.query.targetNum as string) || 30;
+          console.log(`[${timestamp}] 处理illust-recommend-pids API请求 - pid: ${pid}, targetNum: ${targetNum}`);
+          
+          if (!pid) {
+            console.log(`[${timestamp}] Illust-recommend-pids API错误: 缺少PID参数`);
+            res.status(400).json({ error: '缺少PID参数' });
+            return;
+          }
+          
+          try {
+            const taskId = 'illust_recommend_' + pid + '_' + Date.now();
+            logManager.addLog(`收到插画推荐PID获取请求: ${pid}，目标数量: ${targetNum}`, 'info', taskId);
+            
+            const headersList = getPixivHeaders();
+            const crawler = new PixivCrawler(pid, headersList, logManager, taskId);
+            const recommendPids = await crawler.getIllustRecommendPids(pid, targetNum);
+            
+            const response = {
+              message: '插画推荐PID获取完成',
+              pid,
+              targetNum,
+              count: recommendPids.length,
+              pids: recommendPids,
+              taskId,
+              timestamp: new Date().toISOString()
+            };
+            
+            console.log(`[${timestamp}] Illust-recommend-pids API响应: 获取到${recommendPids.length}个推荐PID`);
+            res.status(200).json(response);
+          } catch (error) {
+            console.error(`[${timestamp}] Illust-recommend-pids API错误:`, error);
+            res.status(500).json({
+              error: '获取插画推荐PID失败',
+              message: error instanceof Error ? error.message : '未知错误'
+            });
+          }
+        } else if (action === 'author-recommend-pids') {
+          // 获取作者推荐PID列表
+          const pid = req.query.pid as string;
+          const targetNum = parseInt(req.query.targetNum as string) || 30;
+          console.log(`[${timestamp}] 处理author-recommend-pids API请求 - pid: ${pid}, targetNum: ${targetNum}`);
+          
+          if (!pid) {
+            console.log(`[${timestamp}] Author-recommend-pids API错误: 缺少PID参数`);
+            res.status(400).json({ error: '缺少PID参数' });
+            return;
+          }
+          
+          try {
+            const taskId = 'author_recommend_' + pid + '_' + Date.now();
+            logManager.addLog(`收到作者推荐PID获取请求: ${pid}，目标数量: ${targetNum}`, 'info', taskId);
+            
+            const headersList = getPixivHeaders();
+            const crawler = new PixivCrawler(pid, headersList, logManager, taskId);
+            const recommendPids = await crawler.getAuthorRecommendPids(pid, targetNum);
+            
+            const response = {
+              message: '作者推荐PID获取完成',
+              pid,
+              targetNum,
+              count: recommendPids.length,
+              pids: recommendPids,
+              taskId,
+              timestamp: new Date().toISOString()
+            };
+            
+            console.log(`[${timestamp}] Author-recommend-pids API响应: 获取到${recommendPids.length}个推荐PID`);
+            res.status(200).json(response);
+          } catch (error) {
+            console.error(`[${timestamp}] Author-recommend-pids API错误:`, error);
+            res.status(500).json({
+              error: '获取作者推荐PID失败',
+              message: error instanceof Error ? error.message : '未知错误'
+            });
+          }
+        } else if (action === 'pid-detail-info') {
+          // 获取PID详细信息并入库
+          const pid = req.query.pid as string;
+          console.log(`[${timestamp}] 处理pid-detail-info API请求 - pid: ${pid}`);
+          
+          if (!pid) {
+            console.log(`[${timestamp}] Pid-detail-info API错误: 缺少PID参数`);
+            res.status(400).json({ error: '缺少PID参数' });
+            return;
+          }
+          
+          try {
+            const taskId = 'detail_info_' + pid + '_' + Date.now();
+            logManager.addLog(`收到PID详细信息获取请求: ${pid}`, 'info', taskId);
+            
+            const headersList = getPixivHeaders();
+            const crawler = new PixivCrawler(pid, headersList, logManager, taskId);
+            const success = await crawler.getPidDetailInfo(pid);
+            
+            const response = {
+              message: success ? 'PID详细信息获取并入库完成' : 'PID详细信息获取失败或跳过',
+              pid,
+              success,
+              taskId,
+              timestamp: new Date().toISOString()
+            };
+            
+            console.log(`[${timestamp}] Pid-detail-info API响应: ${success ? '成功' : '失败'}`);
+            res.status(200).json(response);
+          } catch (error) {
+            console.error(`[${timestamp}] Pid-detail-info API错误:`, error);
+            res.status(500).json({
+              error: '获取PID详细信息失败',
+              message: error instanceof Error ? error.message : '未知错误'
+            });
+          }
         } else if (action === 'daily' || action === 'weekly' || action === 'monthly') {
           // 触发按类型排行榜抓取
           const type = action as 'daily' | 'weekly' | 'monthly';

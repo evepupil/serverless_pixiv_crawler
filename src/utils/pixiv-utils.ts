@@ -34,6 +34,27 @@ export function getIllustRecommendPids(infoJson: PixivIllustInfo): string[] {
   return pids;
 }
 
+/**
+ * 从推荐响应中提取插画PID列表
+ * @param recommendResponse 推荐响应数据
+ * @returns 插画PID数组
+ */
+export function getRecommendPidsFromResponse(recommendResponse: any): string[] {
+  const pids: string[] = [];
+  
+  if (typeof recommendResponse === 'object' && 
+      recommendResponse.body && 
+      Array.isArray(recommendResponse.body.illusts)) {
+    for (const illust of recommendResponse.body.illusts) {
+      if (illust && illust.id) {
+        pids.push(illust.id);
+      }
+    }
+  }
+  
+  return pids;
+}
+
 export function getAuthorRecommendUsers(infoJson: PixivIllustInfo): string[] {
   const userIds: string[] = [];
   
@@ -143,4 +164,4 @@ export function getIllustAuthorName(infoJson: PixivIllustInfo): string | null {
     return infoJson.body.userName;
   }
   return null;
-} 
+}

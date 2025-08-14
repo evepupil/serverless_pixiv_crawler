@@ -385,4 +385,209 @@ export class SupabaseService {
       return [];
     }
   }
+
+  // ===== pic_task表操作方法 =====
+
+  /**
+   * 创建或更新pic_task记录
+   * @param pid 图片ID
+   * @returns Promise<void>
+   */
+  async createOrUpdatePicTask(pid: string): Promise<void> {
+    try {
+      console.log('创建或更新pic_task记录:', { pid });
+      
+      const { data, error } = await this.client
+        .from('pic_task')
+        .upsert([{ pid }], { onConflict: 'pid' })
+        .select();
+
+      if (error) {
+        console.error('创建或更新pic_task失败:', error);
+        throw error;
+      }
+      
+      console.log('创建或更新pic_task完成:', { pid });
+    } catch (error) {
+      console.error('创建或更新pic_task异常:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 更新插画推荐爬取状态
+   * @param pid 图片ID
+   * @param count 获取到的推荐数量
+   * @returns Promise<void>
+   */
+  async updateIllustRecommendStatus(pid: string, count: number = 0): Promise<void> {
+    try {
+      const { error } = await this.client
+        .from('pic_task')
+        .update({
+          illust_recommend_crawled: true,
+          illust_recommend_time: new Date().toISOString(),
+          illust_recommend_count: count
+        })
+        .eq('pid', pid);
+
+      if (error) {
+        console.error('更新插画推荐状态失败:', error);
+        throw error;
+      }
+      
+      console.log('更新插画推荐状态完成:', { pid, count });
+    } catch (error) {
+      console.error('更新插画推荐状态异常:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 更新作者推荐爬取状态
+   * @param pid 图片ID
+   * @param count 获取到的推荐数量
+   * @returns Promise<void>
+   */
+  async updateAuthorRecommendStatus(pid: string, count: number = 0): Promise<void> {
+    try {
+      const { error } = await this.client
+        .from('pic_task')
+        .update({
+          author_recommend_crawled: true,
+          author_recommend_time: new Date().toISOString(),
+          author_recommend_count: count
+        })
+        .eq('pid', pid);
+
+      if (error) {
+        console.error('更新作者推荐状态失败:', error);
+        throw error;
+      }
+      
+      console.log('更新作者推荐状态完成:', { pid, count });
+    } catch (error) {
+      console.error('更新作者推荐状态异常:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 更新详细信息爬取状态
+   * @param pid 图片ID
+   * @returns Promise<void>
+   */
+  async updateDetailInfoStatus(pid: string): Promise<void> {
+    try {
+      const { error } = await this.client
+        .from('pic_task')
+        .update({
+          detail_info_crawled: true,
+          detail_info_time: new Date().toISOString()
+        })
+        .eq('pid', pid);
+
+      if (error) {
+        console.error('更新详细信息状态失败:', error);
+        throw error;
+      }
+      
+      console.log('更新详细信息状态完成:', { pid });
+    } catch (error) {
+      console.error('更新详细信息状态异常:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 获取pic_task记录
+   * @param pid 图片ID
+   * @returns Promise<any | null>
+   */
+  async getPicTask(pid: string): Promise<any | null> {
+    try {
+      const { data, error } = await this.client
+        .from('pic_task')
+        .select('*')
+        .eq('pid', pid)
+        .single();
+
+      if (error) {
+        if (error.code === 'PGRST116') {
+          // 记录不存在
+          return null;
+        }
+        console.error('获取pic_task记录失败:', error);
+        throw error;
+      }
+
+      return data;
+    } catch (error) {
+      console.error('获取pic_task记录异常:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 获取未完成指定任务的PID列表
+   * @param taskType 任务类型: 'illust_recommend' | 'author_recommend' | 'detail_info'
+   * @param limit 限制数量，默认100
+   * @returns Promise<string[]>
+   */
+  async getUncompletedTasks(taskType: 'illust_recommend' | 'author_recommend' | 'detail_info', limit: number = 100): Promise<string[]> {
+    try {
+      const columnMap = {
+        'illust_recommend': 'illust_recommend_crawled',
+        'author_recommend': 'author_recommend_crawled',
+        'detail_info': 'detail_info_crawled'
+      };
+
+      const column = columnMap[taskType];
+      const { data, error } = await this.client
+        .from('pic_task')
+        .select('pid')
+        .eq(column, false)
+        .limit(limit);
+
+      if (error) {
+        console.error('获取未完成任务失败:', error);
+        throw error;
+      }
+
+      return data?.map(item => item.pid) || [];
+    } catch (error) {
+      console.error('获取未完成任务异常:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 批量创建pic_task记录
+   * @param pids PID数组
+   * @returns Promise<void>
+   */
+  async batchCreatePicTasks(pids: string[]): Promise<void> {
+    if (!pids || pids.length === 0) return;
+    
+    try {
+      const uniquePids = Array.from(new Set(pids));
+      const rows = uniquePids.map(pid => ({ pid }));
+      
+      console.log('批量创建pic_task记录:', { count: rows.length });
+      
+      const { error } = await this.client
+        .from('pic_task')
+        .upsert(rows, { onConflict: 'pid' });
+
+      if (error) {
+        console.error('批量创建pic_task失败:', error);
+        throw error;
+      }
+      
+      console.log('批量创建pic_task完成:', { count: rows.length });
+    } catch (error) {
+      console.error('批量创建pic_task异常:', error);
+      throw error;
+    }
+  }
 }

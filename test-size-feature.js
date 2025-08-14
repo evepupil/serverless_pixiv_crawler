@@ -2,7 +2,7 @@ const axios = require('axios');
 
 // 测试配置
 const API_BASE_URL = 'https://pixiv.chaosyn.com/'; // 或者你的Vercel部署URL
-const TEST_PID = '127526045'; // 替换为真实的PID进行测试
+const TEST_PID = '132885069'; // 替换为真实的PID进行测试
 
 async function testSizeFeature() {
   console.log('🧪 测试图片下载的size功能...\n');
