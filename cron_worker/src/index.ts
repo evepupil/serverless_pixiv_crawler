@@ -206,6 +206,228 @@ async function triggerMonthly(env: Env): Promise<void> {
   }
 }
 
+/**
+ * 触发插画推荐爬取任务 - 每10分钟获取未爬取插画推荐的任务
+ * @param env 环境变量配置
+ */
+async function triggerIllustRecommendTasks(env: Env): Promise<void> {
+  const primary = env.PRIMARY_API_BASE.replace(/\/$/, '');
+  const workersRaw = (env.WORKER_API_BASES || '').trim();
+  const workerBases = workersRaw ? workersRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
+  if (workerBases.length === 0) {
+    console.log('无从节点配置，跳过插画推荐任务');
+    return;
+  }
+
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] 开始获取未爬取插画推荐任务 - 节点数量: ${workerBases.length}`);
+
+  try {
+    // 从主节点获取未爬取插画推荐的任务
+    const response = await callApi(`${primary}/?action=get-uncrawled-tasks&type=illust_recommend&limit=${workerBases.length}`, { method: 'GET' });
+    
+    if (!response.ok) {
+      console.log(`❌ 获取插画推荐任务失败 - 状态码: ${response.status}`);
+      return;
+    }
+
+    const responseData = await response.json().catch(() => ({ tasks: [] }));
+    const tasks = Array.isArray(responseData?.tasks) ? responseData.tasks : [];
+    
+    if (tasks.length === 0) {
+      console.log('暂无未爬取的插画推荐任务');
+      return;
+    }
+
+    console.log(`获取到 ${tasks.length} 个插画推荐任务，开始分发给从节点`);
+
+    // 分发任务给从节点
+    const results = await Promise.allSettled(tasks.map(async (task: any, idx: number) => {
+      const base = workerBases[idx % workerBases.length].replace(/\/$/, '');
+      const requestTimestamp = new Date().toISOString();
+      
+      console.log(`[${requestTimestamp}] 分发插画推荐任务 PID ${task.pid} 给从节点 ${base}`);
+      
+      try {
+        const taskResponse = await callApi(`${base}/?action=illust-recommend-pids&pid=${task.pid}`, { method: 'GET' });
+        
+        const responseTimestamp = new Date().toISOString();
+        if (taskResponse.ok) {
+          const taskResponseData = await taskResponse.json().catch(() => ({}));
+          console.log(`[${responseTimestamp}] ✅ 插画推荐任务 PID ${task.pid} 分发成功`);
+          return { pid: task.pid, base, success: true, response: taskResponseData };
+        } else {
+          console.log(`[${responseTimestamp}] ❌ 插画推荐任务 PID ${task.pid} 分发失败 - 状态码: ${taskResponse.status}`);
+          return { pid: task.pid, base, success: false, error: `HTTP ${taskResponse.status}` };
+        }
+      } catch (error) {
+        const errorTimestamp = new Date().toISOString();
+        console.error(`[${errorTimestamp}] ❌ 插画推荐任务 PID ${task.pid} 分发异常:`, error);
+        return { pid: task.pid, base, success: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    }));
+
+    // 统计分发结果
+    const successCount = results.filter(r => r.status === 'fulfilled' && r.value.success).length;
+    const failureCount = results.length - successCount;
+    const completionTimestamp = new Date().toISOString();
+    
+    console.log(`[${completionTimestamp}] 插画推荐任务分发完成 - 成功: ${successCount}/${results.length}, 失败: ${failureCount}`);
+    
+  } catch (error) {
+    const errorTimestamp = new Date().toISOString();
+    console.error(`[${errorTimestamp}] ❌ 插画推荐任务处理异常:`, error);
+  }
+}
+
+/**
+ * 触发作者推荐爬取任务 - 每10分钟获取未爬取作者推荐的任务
+ * @param env 环境变量配置
+ */
+async function triggerAuthorRecommendTasks(env: Env): Promise<void> {
+  const primary = env.PRIMARY_API_BASE.replace(/\/$/, '');
+  const workersRaw = (env.WORKER_API_BASES || '').trim();
+  const workerBases = workersRaw ? workersRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
+  if (workerBases.length === 0) {
+    console.log('无从节点配置，跳过作者推荐任务');
+    return;
+  }
+
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] 开始获取未爬取作者推荐任务 - 节点数量: ${workerBases.length}`);
+
+  try {
+    // 从主节点获取未爬取作者推荐的任务
+    const response = await callApi(`${primary}/?action=get-uncrawled-tasks&type=author_recommend&limit=${workerBases.length}`, { method: 'GET' });
+    
+    if (!response.ok) {
+      console.log(`❌ 获取作者推荐任务失败 - 状态码: ${response.status}`);
+      return;
+    }
+
+    const responseData = await response.json().catch(() => ({ tasks: [] }));
+    const tasks = Array.isArray(responseData?.tasks) ? responseData.tasks : [];
+    
+    if (tasks.length === 0) {
+      console.log('暂无未爬取的作者推荐任务');
+      return;
+    }
+
+    console.log(`获取到 ${tasks.length} 个作者推荐任务，开始分发给从节点`);
+
+    // 分发任务给从节点
+    const results = await Promise.allSettled(tasks.map(async (task: any, idx: number) => {
+      const base = workerBases[idx % workerBases.length].replace(/\/$/, '');
+      const requestTimestamp = new Date().toISOString();
+      
+      console.log(`[${requestTimestamp}] 分发作者推荐任务 PID ${task.pid} 给从节点 ${base}`);
+      
+      try {
+        const taskResponse = await callApi(`${base}/?action=author-recommend-pids&pid=${task.pid}`, { method: 'GET' });
+        
+        const responseTimestamp = new Date().toISOString();
+        if (taskResponse.ok) {
+          const taskResponseData = await taskResponse.json().catch(() => ({}));
+          console.log(`[${responseTimestamp}] ✅ 作者推荐任务 PID ${task.pid} 分发成功`);
+          return { pid: task.pid, base, success: true, response: taskResponseData };
+        } else {
+          console.log(`[${responseTimestamp}] ❌ 作者推荐任务 PID ${task.pid} 分发失败 - 状态码: ${taskResponse.status}`);
+          return { pid: task.pid, base, success: false, error: `HTTP ${taskResponse.status}` };
+        }
+      } catch (error) {
+        const errorTimestamp = new Date().toISOString();
+        console.error(`[${errorTimestamp}] ❌ 作者推荐任务 PID ${task.pid} 分发异常:`, error);
+        return { pid: task.pid, base, success: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    }));
+
+    // 统计分发结果
+    const successCount = results.filter(r => r.status === 'fulfilled' && r.value.success).length;
+    const failureCount = results.length - successCount;
+    const completionTimestamp = new Date().toISOString();
+    
+    console.log(`[${completionTimestamp}] 作者推荐任务分发完成 - 成功: ${successCount}/${results.length}, 失败: ${failureCount}`);
+    
+  } catch (error) {
+    const errorTimestamp = new Date().toISOString();
+    console.error(`[${errorTimestamp}] ❌ 作者推荐任务处理异常:`, error);
+  }
+}
+
+/**
+ * 触发详细信息爬取任务 - 每1分钟获取未爬取详细信息的任务
+ * @param env 环境变量配置
+ */
+async function triggerDetailInfoTasks(env: Env): Promise<void> {
+  const primary = env.PRIMARY_API_BASE.replace(/\/$/, '');
+  const workersRaw = (env.WORKER_API_BASES || '').trim();
+  const workerBases = workersRaw ? workersRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
+  if (workerBases.length === 0) {
+    console.log('无从节点配置，跳过详细信息任务');
+    return;
+  }
+
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] 开始获取未爬取详细信息任务 - 节点数量: ${workerBases.length}`);
+
+  try {
+    // 从主节点获取未爬取详细信息的任务
+    const response = await callApi(`${primary}/?action=get-uncrawled-tasks&type=detail&limit=${workerBases.length}`, { method: 'GET' });
+    
+    if (!response.ok) {
+      console.log(`❌ 获取详细信息任务失败 - 状态码: ${response.status}`);
+      return;
+    }
+
+    const responseData = await response.json().catch(() => ({ tasks: [] }));
+    const tasks = Array.isArray(responseData?.tasks) ? responseData.tasks : [];
+    
+    if (tasks.length === 0) {
+      console.log('暂无未爬取的详细信息任务');
+      return;
+    }
+
+    console.log(`获取到 ${tasks.length} 个详细信息任务，开始分发给从节点`);
+
+    // 分发任务给从节点
+    const results = await Promise.allSettled(tasks.map(async (task: any, idx: number) => {
+      const base = workerBases[idx % workerBases.length].replace(/\/$/, '');
+      const requestTimestamp = new Date().toISOString();
+      
+      console.log(`[${requestTimestamp}] 分发详细信息任务 PID ${task.pid} 给从节点 ${base}`);
+      
+      try {
+        const taskResponse = await callApi(`${base}/?action=pid-detail-info&pid=${task.pid}`, { method: 'GET' });
+        
+        const responseTimestamp = new Date().toISOString();
+        if (taskResponse.ok) {
+          const taskResponseData = await taskResponse.json().catch(() => ({}));
+          console.log(`[${responseTimestamp}] ✅ 详细信息任务 PID ${task.pid} 分发成功`);
+          return { pid: task.pid, base, success: true, response: taskResponseData };
+        } else {
+          console.log(`[${responseTimestamp}] ❌ 详细信息任务 PID ${task.pid} 分发失败 - 状态码: ${taskResponse.status}`);
+          return { pid: task.pid, base, success: false, error: `HTTP ${taskResponse.status}` };
+        }
+      } catch (error) {
+        const errorTimestamp = new Date().toISOString();
+        console.error(`[${errorTimestamp}] ❌ 详细信息任务 PID ${task.pid} 分发异常:`, error);
+        return { pid: task.pid, base, success: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    }));
+
+    // 统计分发结果
+    const successCount = results.filter(r => r.status === 'fulfilled' && r.value.success).length;
+    const failureCount = results.length - successCount;
+    const completionTimestamp = new Date().toISOString();
+    
+    console.log(`[${completionTimestamp}] 详细信息任务分发完成 - 成功: ${successCount}/${results.length}, 失败: ${failureCount}`);
+    
+  } catch (error) {
+    const errorTimestamp = new Date().toISOString();
+    console.error(`[${errorTimestamp}] ❌ 详细信息任务处理异常:`, error);
+  }
+}
+
 function isCron(event: any): boolean {
   // In Workers, scheduled events are different type; here we check by presence of cron
   // @ts-ignore
@@ -224,8 +446,17 @@ export default {
     const cronExpr = (event as any).cron as string;
     try {
       switch (cronExpr) {
-        case '*/10 * * * *':
+        case '*/10 * * * *': // 每10分钟 - 原有任务
           await triggerTenMin(env);
+          break;
+        case '*/10 * * * * illust': // 每10分钟 - 插画推荐任务
+          await triggerIllustRecommendTasks(env);
+          break;
+        case '*/10 * * * * author': // 每10分钟 - 作者推荐任务
+          await triggerAuthorRecommendTasks(env);
+          break;
+        case '* * * * *': // 每1分钟 - 详细信息任务
+          await triggerDetailInfoTasks(env);
           break;
         case '0 1 * * *':
           await triggerDaily(env);
