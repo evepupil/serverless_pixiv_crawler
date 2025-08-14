@@ -49,9 +49,9 @@ export class PixivCrawler {
    * @param headersList Pixiv请求头列表
    * @param logManager 日志管理器
    * @param taskId 任务ID
-   * @param popularityThreshold 热度阈值，默认为0.22
+   * @param popularityThreshold 热度阈值，默认为0
    */
-  constructor(pid: string, headersList: PixivHeaders[], logManager: ILogManager, taskId: string, popularityThreshold: number = 0.22) {
+  constructor(pid: string, headersList: PixivHeaders[], logManager: ILogManager, taskId: string, popularityThreshold: number =0) {
     this.initPid = pid;
     this.headers = headersList[0];
     this.headersList = headersList;
