@@ -532,16 +532,7 @@ export class PixivCrawler {
           const popularity = getIllustPopularity(info);
           const roundedPopularity = Math.round(popularity * 100) / 100;
 
-<<<<<<< HEAD
-          const viewJson = getIllustData(info);
-          if (viewJson) {
-            const illustTags = getIllustTags(info);
-            this.logManager.addLog(`view_json:${JSON.stringify(viewJson)}`, 'info', this.taskId);
-            console.log(`view_json:${JSON.stringify(viewJson)}`);
-            this.logManager.addLog(`tag:${JSON.stringify(illustTags)}`, 'info', this.taskId);
-            console.log(`tag:${JSON.stringify(illustTags)}`);
-            const tagsString = illustTags.join(', ');
-=======
+
                       const viewJson = getIllustData(info);
             if (viewJson) {
               const illustTags = getIllustTags(info);
@@ -555,7 +546,7 @@ export class PixivCrawler {
               this.logManager.addLog(`author_id:${authorId}, author_name:${authorName}`, 'info', this.taskId);
 
               const tagsString = illustTags.join(', ');
->>>>>>> 80a336b85ed56c89107bafb9d0f72e8377a06856
+
 
               const picData: DatabasePic = {
                 pid: firstPid,
