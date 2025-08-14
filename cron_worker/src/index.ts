@@ -485,12 +485,8 @@ export default {
     try {
       switch (cronExpr) {
         case '*/10 * * * *': // 每10分钟 - 原有任务
-          await triggerTenMin(env);
-          break;
-        case '*/10 * * * * illust': // 每10分钟 - 插画推荐任务
+          //await triggerTenMin(env);
           await triggerIllustRecommendTasks(env);
-          break;
-        case '*/10 * * * * author': // 每10分钟 - 作者推荐任务
           await triggerAuthorRecommendTasks(env);
           break;
         case '* * * * *': // 每1分钟 - 详细信息任务

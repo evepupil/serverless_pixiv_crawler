@@ -4,10 +4,11 @@ compatibility_date = "2024-11-21"
 
 [triggers]
 crons = [
-  "*/10 * * * *",   # 每10分钟
-  "0 1 * * *",      # 每天 01:00
-  "0 1 * * 1",      # 每周一 01:00
-  "0 1 1 * *"       # 每月1号 01:00
+  "*/10 * * * *",   # 每10分钟 - 插画推荐和作者推荐任务
+  "* * * * *",      # 每1分钟 - 详细信息爬取任务
+  "0 1 * * *",      # 每天 01:00 - 每日排行榜
+  "0 1 * * 1",      # 每周一 01:00 - 每周排行榜
+  "0 1 1 * *"       # 每月1号 01:00 - 每月排行榜
 ]
 
 [vars]
@@ -20,6 +21,11 @@ WORKER_API_BASES = "https://pixiv.chaosyn.com/api"
 # 10分钟任务用：目标数量和热度阈值（可选）
 TEN_MIN_TARGET_NUM = "100"
 TEN_MIN_THRESHOLD = "0"
+
+# Supabase配置（用于pic_task表查询）
+# 注意：敏感信息应使用 wrangler secret put 命令设置
+# SUPABASE_URL = "your-supabase-url"
+# SUPABASE_SERVICE_ROLE_KEY = "your-service-role-key"
 
 # wrangler.toml (wrangler v3.88.0^)
 [observability.logs]
