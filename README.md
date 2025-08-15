@@ -7,6 +7,57 @@
 
 这是一个现代化的 Pixiv 插画爬虫系统，采用 **Serverless 架构**，使用 TypeScript 开发，集成 Supabase 数据库，部署在 Vercel 平台。系统具备智能推荐、热度计算、防封机制等高级功能。
 
+> ⚠️ **重要声明**
+>
+> - **本项目仅供学习与技术交流使用**，请勿用于任何商业或违反目标网站条款的用途。
+> - 使用本项目需遵守所在地法律法规与 Pixiv 的服务条款。
+> - **请务必合理控制爬取频率**，建议每分钟不超过1-2个请求，避免对目标网站造成压力。
+> - 作者不对任何滥用行为承担责任，请自觉、合理地使用本项目。
+> - **学习目的**：本项目主要用于学习 Serverless 架构、API 设计和数据处理技术。
+> - 🚫 **cf_worker_pixiv_crawler 目录不可用**：由于 Cloudflare Worker 的 IP 已被 Pixiv 封禁，该目录下的直接爬虫实现无法正常工作
+
+## ⚠️ Cloudflare Workers 使用说明
+
+本仓库包含两个与 Cloudflare Workers 相关的目录：
+- `cron_worker/`：用于定时触发任务分发，通过 Supabase 读取任务并分发到节点
+- `cf_worker_pixiv_crawler/`：尝试在 Cloudflare Workers 内直接抓取 Pixiv 内容的实现，由于 Pixiv 对 Cloudflare 的出口 IP 封禁，该目录下的功能不可用
+
+
+
+## ✅ 合理使用建议
+
+- 建议控制抓取速率：
+  - 详情页抓取：建议每个节点每分钟 1~2 个 PID，增加 1~3 秒随机延迟。
+  - 列表/推荐抓取：更低频率，避免集中高峰时段。
+- 使用稳定代理或自建出口，避免公共代理/被封锁的 IP。
+- 为节点设置失败重试与熔断，避免持续对目标站点施压。
+
+## ⏱️ Cloudflare Cron Worker（可用）
+
+- 作用：
+  - 每 10 分钟：从数据库选取未爬取的“插画推荐/作者推荐”任务，分发给你的工作节点。
+  - 每 1 分钟：从数据库选取未爬取“详细信息”的 PID 任务，分发给你的工作节点。
+- 配置位置：`cron_worker/wrangler.toml`
+  - 已内置以下定时表达式：`*/10 * * * *`、`* * * * *`、`0 1 * * *`、`0 1 * * 1`、`0 1 1 * *`
+- 必要环境变量：
+  - `PRIMARY_API_BASE`：主节点 API（不要以斜杠结尾）。
+  - `WORKER_API_BASES`：从节点 API 列表，逗号分隔。
+  - `SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY`：用于访问 Supabase 的 pic_task 表（请以 Secret 方式配置）。
+
+部署与配置示例（在 cron_worker 目录内）：
+
+```bash
+# 设置机密（不要直接写入 wrangler.toml）
+wrangler secret put SUPABASE_URL
+wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+
+# 部署
+wrangler deploy
+```
+
+> 说明：Cron Worker 只负责“读取任务并分发”，不会直接请求 Pixiv。实际抓取由你配置在 `PRIMARY_API_BASE/WORKER_API_BASES` 对应的服务来执行。
+
+
 ## ✨ 项目特性
 
 - 🚀 **Serverless架构**: 基于Vercel部署，零运维成本，自动扩容
@@ -19,6 +70,7 @@
 - 🌐 **Web界面**: 现代化UI，实时日志，任务管理
 - 🛡️ **错误处理**: 智能异常识别，友好错误提示
 - 📱 **响应式设计**: 支持桌面和移动端访问
+
 
 ## 🛠️ 技术栈
 
@@ -36,6 +88,16 @@
 - **云存储**: @aws-sdk/client-s3 3.470+ (Cloudflare R2兼容)
 
 ## 🚀 快速开始
+
+### ⚠️ 部署前须知
+
+在开始部署之前，请了解项目的推荐使用场景：
+
+- **推荐使用场景**：
+  - 🎯 **学习 Serverless 架构**：了解 Vercel + Cloudflare Workers 的开发模式
+  - 🖼️ **图片代理服务**：为现有 Pixiv 图片提供代理访问
+  - 📊 **数据管理**：管理已有的 Pixiv 作品数据
+  - ⏰ **定时任务**：使用 Cloudflare Cron Worker 进行任务调度
 
 ### 1. 环境准备
 
@@ -70,14 +132,14 @@ SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key_here
 # Pixiv配置
 PIXIV_COOKIE=your_pixiv_cookie_here
 
-# Cloudflare R2配置
+# Cloudflare R2配置（可选）
 CLOUDFLARE_ACCOUNT_ID=your_cloudflare_account_id_here
 CLOUDFLARE_ACCESS_KEY_ID=your_cloudflare_access_key_id_here
 CLOUDFLARE_SECRET_ACCESS_KEY=your_cloudflare_secret_access_key_here
 CLOUDFLARE_BUCKET_NAME=your_cloudflare_bucket_name_here
 CLOUDFLARE_REGION=auto
 
-# 爬虫配置（可选）
+# 爬虫配置
 MAX_ILLUSTRATIONS=1000
 POPULARITY_THRESHOLD=0.22
 REQUEST_DELAY_MIN=1000
@@ -114,7 +176,23 @@ npm run deploy
 vercel --prod
 ```
 
-部署成功后，您将获得一个可访问的 URL，可以通过 Web 界面管理爬虫任务。
+### 6. 部署 Cloudflare Cron Worker（可选）
+
+如果需要使用定时任务功能：
+
+```bash
+cd cron_worker
+npm install
+
+# 配置环境变量
+wrangler secret put SUPABASE_URL
+wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+
+# 部署定时任务
+wrangler deploy
+```
+
+部署成功后，您将获得一个可访问的 URL。
 
 ## 📖 使用方法
 
@@ -173,6 +251,106 @@ GET /api/?action=logs&taskId=single_123456_1234567890
 }
 ```
 
+#### 代理访问图片
+```bash
+GET /api/?action=proxy-image&pid=123456789&size=regular
+
+# 参数说明
+# pid: 必需，Pixiv作品ID
+# size: 可选，图片尺寸 (thumb_mini|small|regular|original)
+#       不指定时按优先级自动选择: thumb_mini → small → regular → original
+
+# 成功响应: 直接返回图片二进制数据
+# Content-Type: image/jpeg|image/png|image/gif 等
+# Cache-Control: public, max-age=3600
+
+# 失败响应示例
+{
+  "success": false,
+  "error": "图片代理访问失败"
+}
+```
+
+#### 获取随机PID列表
+```bash
+GET /api/?action=random-pids&count=10
+
+# 参数说明
+# count: 可选，返回的PID数量，默认10个，最大100个
+
+# 响应示例
+{
+  "success": true,
+  "pids": ["123456", "789012", "345678"],
+  "count": 3
+}
+```
+
+#### 获取插画推荐PID
+```bash
+GET /api/?action=illust-recommend-pids&pid=123456&targetNum=30
+
+# 参数说明
+# pid: 必需，基础PID
+# targetNum: 可选，目标推荐数量，默认30
+
+# 响应示例
+{
+  "success": true,
+  "recommendPids": ["111111", "222222"],
+  "count": 2
+}
+```
+
+#### 获取作者推荐PID
+```bash
+GET /api/?action=author-recommend-pids&pid=123456&targetNum=30
+
+# 参数说明
+# pid: 必需，基础PID
+# targetNum: 可选，目标推荐数量，默认30
+
+# 响应示例
+{
+  "success": true,
+  "authorRecommendPids": ["333333", "444444"],
+  "count": 2
+}
+```
+
+#### 获取PID详细信息
+```bash
+GET /api/?action=pid-detail-info&pid=123456
+
+# 响应示例
+{
+  "success": true,
+  "pidInfo": {
+    "pid": "123456",
+    "title": "作品标题",
+    "tags": ["标签1", "标签2"],
+    "good": 1000,
+    "star": 500,
+    "view": 10000,
+    "popularity": 0.35
+  }
+}
+```
+
+#### 触发排行榜爬取
+```bash
+GET /api/?action=daily    # 日榜
+GET /api/?action=weekly   # 周榜
+GET /api/?action=monthly  # 月榜
+
+# 响应示例
+{
+  "success": true,
+  "message": "日榜爬取任务已启动",
+  "taskId": "daily_ranking_1736598123456"
+}
+```
+
 #### 启动单个PID爬取
 ```bash
 POST /api/
@@ -212,6 +390,45 @@ Content-Type: application/json
 }
 ```
 
+#### 启动单个PID下载任务
+```bash
+POST /api/
+Content-Type: application/json
+
+{
+  "action": "download",
+  "downloadPid": "133592668"
+}
+
+# 响应示例
+{
+  "success": true,
+  "message": "下载任务启动成功",
+  "taskId": "download_133592668_1736598123456"
+}
+```
+
+#### 启动批量PID下载任务
+```bash
+POST /api/
+Content-Type: application/json
+
+{
+  "action": "download",
+  "downloadPids": ["133592668", "119603355"]
+}
+
+# 响应示例
+{
+  "success": true,
+  "message": "批量下载任务启动成功",
+  "taskId": "batch_download_2_1736598123456",
+  "totalPids": 2
+}
+```
+
+
+
 > 📚 **完整API文档**: 请参考 [API文档](docs/API_DOCUMENTATION.md) 和 [下载API文档](docs/DOWNLOAD_API.md)
 
 ## 📁 项目结构
@@ -220,6 +437,13 @@ Content-Type: application/json
 📦 serverless_pixiv_crawler/
 ├── 📁 api/                    # Vercel API 路由
 │   └── index.ts              # API 入口文件
+├── 📁 cron_worker/           # Cloudflare定时任务
+│   ├── src/
+│   │   └── index.ts          # 定时任务逻辑，用于任务分发
+│   ├── wrangler.toml         # Cloudflare Worker 配置
+│   └── package.json          # 依赖配置
+├── 📁 cf_worker_pixiv_crawler/ # Cloudflare Worker爬虫（不可用）
+│   └── ...                   # 由于IP封禁，此目录功能已失效
 ├── 📁 docs/                  # 项目文档
 │   ├── API_DOCUMENTATION.md  # API 接口文档
 │   ├── DOWNLOAD_API.md       # 下载功能API文档
@@ -233,8 +457,9 @@ Content-Type: application/json
 │   ├── 📁 database/         # 数据库层
 │   │   └── supabase.ts      # Supabase 数据库服务
 │   ├── 📁 services/         # 业务逻辑层
-│   │   ├── pixiv-crawler.ts # Pixiv 爬虫核心服务
-│   │   └── pixiv-downloader.ts # Pixiv 图片下载服务
+│   ├── pixiv-crawler.ts # Pixiv 爬虫核心服务
+│   ├── pixiv-downloader.ts # Pixiv 图片下载服务
+│   └── pixiv-proxy.ts   # Pixiv 图片代理访问服务
 │   ├── 📁 templates/        # HTML 模板
 │   │   └── index.html       # Web 界面模板
 │   ├── 📁 types/           # TypeScript 类型定义
@@ -244,6 +469,7 @@ Content-Type: application/json
 │   └── index.ts            # 主入口文件和路由
 ├── 📁 supabase/            # 数据库脚本
 │   └── init.sql            # 数据库初始化 SQL
+├── 📄 test-pic-task.js     # 测试脚本
 ├── 📄 env.example          # 环境变量模板
 ├── 📄 package.json         # 项目依赖和脚本
 ├── 📄 tsconfig.json        # TypeScript 配置
@@ -253,15 +479,30 @@ Content-Type: application/json
 
 ### 🗂️ 核心模块说明
 
-| 模块 | 功能描述 |
-|------|----------|
-| **api/** | Vercel Serverless Functions 入口 |
-| **src/services/** | 爬虫核心逻辑，包含推荐算法和数据处理 |
-| **src/database/** | 数据库操作封装，支持 CRUD 和统计查询 |
-| **src/utils/** | 热度计算、数据解析等工具函数 |
-| **src/config/** | 环境变量管理和配置常量 |
-| **src/types/** | TypeScript 类型定义，确保类型安全 |
-| **docs/** | 完整的项目文档，包含使用指南和架构说明 |
+| 模块 | 功能描述 | 状态 |
+|------|----------|------|
+| **api/** | Vercel Serverless Functions 入口 | 正常 |
+| **src/services/** | 爬虫核心逻辑，包含推荐算法、数据处理和图片代理 | 正常 |
+| **src/database/** | 数据库操作封装，支持 CRUD 和统计查询 | 正常 |
+| **src/utils/** | 热度计算、数据解析等工具函数 | 正常 |
+| **src/config/** | 环境变量管理和配置常量 | 正常 |
+| **src/types/** | TypeScript 类型定义，确保类型安全 | 正常 |
+| **cron_worker/** | Cloudflare 定时任务，用于任务分发 | 正常 |
+| **cf_worker_pixiv_crawler/** | Cloudflare Worker 直接爬虫 | 不可用 |
+| **docs/** | 完整的项目文档，包含使用指南和架构说明 | 正常 |
+
+### 📊 功能状态详情
+
+| 功能模块 | 状态 | 说明 |
+|---------|------|------|
+| 🖼️ 图片代理访问 | 正常 | 可以正常代理访问 Pixiv 图片 |
+| 🗄️ 数据库操作 | 正常 | Supabase 数据库功能完全可用 |
+| ⏰ 定时任务 | 正常 | Cloudflare Cron Worker 可正常工作 |
+| 🌐 Web 界面 | 正常 | 管理界面可正常访问 |
+| 🕷️ 直接爬虫 | 正常 | 爬虫功能正常可用 |
+| 📥 图片下载 | 正常 | 图片下载功能正常 |
+| 📊 数据统计 | 正常 | 数据分析和统计功能正常 |
+| 🔍 内容搜索 | 正常 | 基于现有数据的搜索功能正常 |
 
 ## 🎯 核心功能
 
@@ -292,7 +533,14 @@ Content-Type: application/json
 - **频率控制**: 智能调节请求速度
 - **异常重试**: 自动处理网络异常和限流
 
-### 5. 📈 实时监控
+### 5. 🖼️ 图片代理访问
+- **智能尺寸选择**: 按优先级自动选择最佳图片尺寸
+- **多格式支持**: 支持 JPEG、PNG、GIF、WebP 等格式
+- **缓存优化**: 1小时浏览器缓存，提升访问速度
+- **错误容错**: 单个尺寸失败时自动尝试其他尺寸
+- **跨域支持**: 设置 CORS 头，支持前端直接调用
+
+### 6. 📈 实时监控
 - **任务状态**: 实时显示爬取进度和统计
 - **错误处理**: 智能识别并友好提示各类异常
 - **性能监控**: 成功率、响应时间等关键指标

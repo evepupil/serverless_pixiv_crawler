@@ -172,7 +172,78 @@ curl -X GET "https://pixiv.chaosyn.com/api/?action=logs&taskId=single_119603355_
 
 ---
 
-### 6. 启动单个 PID 爬取任务
+### 6. 代理访问图片
+
+**端点**: `GET /?action=proxy-image`  
+**描述**: 代理访问指定 Pixiv 插画的图片，绕过防盗链限制
+
+**查询参数**:
+- `pid` (必需): Pixiv 插画 ID
+- `size` (可选): 图片尺寸，可选值：`thumb_mini`、`small`、`regular`、`original`
+
+**响应**:
+- **成功**: 直接返回图片二进制数据
+  - **Content-Type**: `image/jpeg`、`image/png`、`image/gif`、`image/webp` 等
+  - **Cache-Control**: `public, max-age=3600` (1小时缓存)
+  - **Access-Control-Allow-Origin**: `*` (支持跨域)
+- **失败**: 返回JSON错误信息
+
+**成功响应示例**:
+```
+HTTP/1.1 200 OK
+Content-Type: image/jpeg
+Content-Length: 245760
+Cache-Control: public, max-age=3600
+Access-Control-Allow-Origin: *
+
+[图片二进制数据]
+```
+
+**失败响应示例**:
+```json
+{
+  "success": false,
+  "error": "未找到插画页面信息"
+}
+```
+
+**尺寸选择策略**:
+- 如果指定了 `size` 参数，优先尝试该尺寸
+- 如果未指定或指定尺寸失败，按以下优先级自动选择：
+  1. `thumb_mini` (最小尺寸，加载最快)
+  2. `small` (小尺寸)
+  3. `regular` (常规尺寸)
+  4. `original` (原始尺寸，文件最大)
+
+**示例**:
+```bash
+# 获取指定尺寸的图片
+curl -X GET "https://pixiv.chaosyn.com/api/?action=proxy-image&pid=119603355&size=regular" \
+  --output "image.jpg"
+
+# 自动选择最佳尺寸
+curl -X GET "https://pixiv.chaosyn.com/api/?action=proxy-image&pid=119603355" \
+  --output "image.jpg"
+
+# 在HTML中直接使用
+<img src="https://pixiv.chaosyn.com/api/?action=proxy-image&pid=119603355&size=small" alt="Pixiv Image" />
+```
+
+**使用场景**:
+- 在网页中直接显示 Pixiv 图片
+- 绕过 Pixiv 的防盗链限制
+- 为前端应用提供图片代理服务
+- 缓存优化，减少重复请求
+
+**注意事项**:
+- 图片访问需要有效的 Pixiv Cookie
+- 系统会自动处理不同格式的图片
+- 建议使用较小尺寸以提高加载速度
+- 响应包含缓存头，浏览器会自动缓存1小时
+
+---
+
+### 7. 启动单个 PID 爬取任务
 
 **端点**: `POST /`  
 **描述**: 启动单个 Pixiv 插画 ID 的爬取任务
@@ -216,7 +287,7 @@ curl -X POST "https://pixiv.chaosyn.com/api/" \
 
 ---
 
-### 7. 启动批量 PID 爬取任务
+### 8. 启动批量 PID 爬取任务
 
 **端点**: `POST /`  
 **描述**: 启动多个 Pixiv 插画 ID 的批量爬取任务
