@@ -215,6 +215,7 @@ async function triggerMonthly(env: Env): Promise<void> {
  * @param env 环境变量配置
  */
 async function triggerRecommendTasks(env: Env): Promise<void> {
+  await triggerHomeTasks(env);
   await triggerIllustRecommendTasks(env);
   await triggerAuthorRecommendTasks(env);
 }
@@ -397,6 +398,61 @@ async function triggerAuthorRecommendTasks(env: Env): Promise<void> {
   } catch (error) {
     const errorTimestamp = new Date().toISOString();
     console.error(`[${errorTimestamp}] ❌ 作者推荐任务处理异常:`, error);
+  }
+}
+
+/**
+ * 触发首页爬取任务 - 每10分钟获取首页推荐
+ * @param env 环境变量配置
+ */
+async function triggerHomeTasks(env: Env): Promise<void> {
+  const workersRaw = (env.WORKER_API_BASES || '').trim();
+  const workerBases = workersRaw ? workersRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
+  if (workerBases.length === 0) {
+    console.log('无从节点配置，跳过首页爬取任务');
+    return;
+  }
+
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] 开始分发首页爬取任务 - 节点数量: ${workerBases.length}`);
+
+  try {
+    // 分发任务给从节点
+    const results = await Promise.allSettled(workerBases.map(async (base: string, idx: number) => {
+      const cleanBase = base.replace(/\/$/, '');
+      const requestTimestamp = new Date().toISOString();
+      
+      console.log(`[${requestTimestamp}] 分发首页爬取任务给从节点 ${cleanBase}`);
+      
+      try {
+        const taskResponse = await callApi(`${cleanBase}/?action=home`, { method: 'GET' });
+        
+        const responseTimestamp = new Date().toISOString();
+        if (taskResponse.ok) {
+          const taskResponseData = await taskResponse.json().catch(() => ({}));
+          console.log(`[${responseTimestamp}] ✅ 首页爬取任务 从节点 ${cleanBase} 执行成功，爬取返回数据${taskResponseData.count}个PID`);
+          return { base: cleanBase, success: true, response: taskResponseData };
+        } else {
+          console.log(`[${responseTimestamp}] ❌ 首页爬取任务 从节点 ${cleanBase} 执行失败 - 状态码: ${taskResponse.status}`);
+          return { base: cleanBase, success: false, error: `HTTP ${taskResponse.status}` };
+        }
+      } catch (error) {
+        const errorTimestamp = new Date().toISOString();
+        console.error(`[${errorTimestamp}] ❌ 首页爬取任务 从节点 ${cleanBase} 执行异常:`, error);
+        return { base: cleanBase, success: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    }));
+
+    // 统计分发结果
+    const successCount = results.filter(r => r.status === 'fulfilled' && r.value.success).length;
+    const failureCount = results.length - successCount;
+    const completionTimestamp = new Date().toISOString();
+    
+    console.log(`[${completionTimestamp}] 首页爬取任务分发完成 - 成功: ${successCount}/${results.length}, 失败: ${failureCount}`);
+    
+  } catch (error) {
+    const errorTimestamp = new Date().toISOString();
+    console.error(`[${errorTimestamp}] ❌ 首页爬取任务处理异常:`, error);
   }
 }
 
