@@ -156,13 +156,26 @@ export class PixivCrawler {
 
       const response = await this.httpClient.get('https://www.pixiv.net/', { responseType: 'text' });
       const html: string = typeof response.data === 'string' ? response.data : String(response.data);
-      this.logManager.addLog(`获取首页推荐成功，html为${html}`, 'info', this.taskId);
+      this.logManager.addLog(`获取首页推荐成功，html长度为${html.length}`, 'info', this.taskId);
 
-      const pidRegex = /<a[^>]*data-gtm-work-id=["'](\d+)["'][^>]*>/gi;
+      // 查找"推荐作品"字符串的位置
+      const recommendIndex = html.indexOf('推荐作品');
+      if (recommendIndex === -1) {
+        this.logManager.addLog(`未找到"推荐作品"字符串`, 'warning', this.taskId);
+        return [];
+      }
+
+      // 从"推荐作品"之后开始提取HTML内容
+      const htmlAfterRecommend = html.substring(recommendIndex);
+      this.logManager.addLog(`从"推荐作品"之后开始匹配，剩余HTML长度: ${htmlAfterRecommend.length}`, 'info', this.taskId);
+
+      // 提取形如 data-gtm-work-id="123456789" 的PID
+      const pidRegex = /data-gtm-work-id=["'](\d+)["']/gi;
       const pids: string[] = [];
       const seen = new Set<string>();
       let match: RegExpExecArray | null;
-      while ((match = pidRegex.exec(html)) !== null) {
+      
+      while ((match = pidRegex.exec(htmlAfterRecommend)) !== null) {
         const pid = match[1];
         if (!seen.has(pid)) {
           seen.add(pid);
@@ -171,7 +184,7 @@ export class PixivCrawler {
         }
       }
 
-      this.logManager.addLog(`首页推荐提取到 ${pids.length} 个PID`, 'info', this.taskId);
+      this.logManager.addLog(`首页推荐提取到 ${pids.length} 个唯一PID`, 'info', this.taskId);
       return pids;
     } catch (error) {
       this.logManager.addLog(`获取首页推荐异常: ${error instanceof Error ? error.message : String(error)}`, 'error', this.taskId);

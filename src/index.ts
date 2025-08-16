@@ -585,7 +585,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             });
           }
         } else if (action === 'home') {
-          // 获取首页推荐 PID 并最小化入库
+          // 获取首页推荐 PID 并只入库pic_task表
           console.log(`[${timestamp}] 处理home API请求`);
           const headersList = getPixivHeaders();
           const taskId = 'home_' + Date.now();
@@ -594,8 +594,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           if (pids && pids.length > 0) {
             console.log(`[${timestamp}] Home API: 获取到${pids.length}个首页推荐PID`);
             const supabase = new SupabaseService();
-            await supabase.upsertMinimalPics(pids);
-            const response = { message: '首页推荐已入库', count: pids.length, pids, taskId };
+            await supabase.batchCreatePicTasks(pids);
+            const response = { message: '首页推荐PID已入库pic_task表', count: pids.length, pids, taskId };
             console.log(`[${timestamp}] Home API响应:`, response);
             res.status(200).json(response);
           } else {
