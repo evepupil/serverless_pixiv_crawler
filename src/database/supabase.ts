@@ -415,6 +415,32 @@ export class SupabaseService {
   }
 
   /**
+   * 删除pic_task记录
+   * @param pid 图片ID
+   * @returns Promise<void>
+   */
+  async deletePicTask(pid: string): Promise<void> {
+    try {
+      console.log('删除pic_task记录:', { pid });
+      
+      const { error } = await this.client
+        .from('pic_task')
+        .delete()
+        .eq('pid', pid);
+
+      if (error) {
+        console.error('删除pic_task失败:', error);
+        throw error;
+      }
+      
+      console.log('删除pic_task完成:', { pid });
+    } catch (error) {
+      console.error('删除pic_task异常:', error);
+      throw error;
+    }
+  }
+
+  /**
    * 更新插画推荐爬取状态
    * @param pid 图片ID
    * @param count 获取到的推荐数量

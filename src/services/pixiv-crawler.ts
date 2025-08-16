@@ -1,20 +1,21 @@
 import axios, { AxiosInstance } from 'axios';
-import { 
-  PixivIllustInfo, 
-  PixivRecommendResponse, 
-  PixivUserRecommendResponse, 
-  PixivHeaders,
-  DatabasePic,
+import {
+  PixivIllustInfo,
+  PixivIllustResult,
+  PixivRecommendResponse,
+  PixivUserRecommendResponse,
   PixivDailyRankResponse,
-  PixivDailyRankItem
+  DatabasePic,
+  PixivDailyRankItem,
+  PixivHeaders
 } from '../types';
 import { SupabaseService } from '../database/supabase';
-import { 
-  getIllustUser, 
-  getIllustTags, 
-  getIllustRecommendPids, 
+import {
+  getIllustUser,
+  getIllustTags,
+  getIllustRecommendPids,
   getRecommendPidsFromResponse,
-  getAuthorRecommendUsers, 
+  getAuthorRecommendUsers,
   getAuthorRecommendPids,
   getIllustPopularity,
   getIllustData,
@@ -60,7 +61,7 @@ export class PixivCrawler {
     this.logManager = logManager;
     this.taskId = taskId;
     this.popularityThreshold = popularityThreshold;
-    
+
     this.httpClient = axios.create({
       timeout: CRAWLER_CONFIG.HTTP_TIMEOUT, // 使用配置的超时时间
       headers: this.headers as any
@@ -75,10 +76,10 @@ export class PixivCrawler {
     this.logManager.addLog(`切换到p站headers第${this.headerIndex + 1}个`, 'info', this.taskId);
   }
 
-  async getIllustInfo(pid: string): Promise<PixivIllustInfo | null> {
+  async getIllustInfo(pid: string): Promise<PixivIllustResult | null> {
     let retries = 0;
     const maxRetries = CRAWLER_CONFIG.MAX_RETRIES;
-    
+
     while (retries <= maxRetries) {
       try {
         // 减少延迟以提高速度
@@ -95,7 +96,7 @@ export class PixivCrawler {
         );
 
         const resJson: PixivIllustInfo = response.data;
-        
+
         if (resJson.error === false) {
           return resJson;
         } else {
@@ -104,14 +105,25 @@ export class PixivCrawler {
         }
       } catch (error) {
         retries++;
+
+        // 检查是否是 404 错误（图片不存在）
+        if (error && typeof error === 'object' && 'response' in error) {
+          const axiosError = error as any;
+          if (axiosError.response && axiosError.response.status === 404) {
+            this.logManager.addLog(`插画${pid}不存在（404错误），图片可能已被删除`, 'warning', this.taskId);
+            // 返回特殊标记表示 404 错误
+            return { error: true, status: 404, message: 'Image not found' };
+          }
+        }
+
         if (retries > maxRetries) {
           this.logManager.addLog(`获取插画${pid}信息异常(重试${maxRetries}次后失败): ${error instanceof Error ? error.message : String(error)}`, 'error', this.taskId);
           return null;
         }
-        this.logManager.addLog(`获取插画${pid}信息异常，第${retries}次重试: ${error instanceof Error ? error.message : String(error)}`, 'warning', this.taskId);
+        this.logManager.addLog(`获取插画${pid}信息异常，请求链接：https://www.pixiv.net/ajax/illust/${pid}，第${retries}次重试: ${error instanceof Error ? error.message : String(error)}`, 'warning', this.taskId);
       }
     }
-    
+
     return null;
   }
 
@@ -122,7 +134,7 @@ export class PixivCrawler {
       );
 
       const resJson: PixivRecommendResponse = response.data;
-      
+
       if (resJson.error === false) {
         this.logManager.addLog(`获取插画：${pid}推荐列表成功！`, 'info', this.taskId);
         return resJson;
@@ -281,7 +293,7 @@ export class PixivCrawler {
       );
       const resJson: PixivUserRecommendResponse = response.data;
       this.logManager.addLog(`获取用户：${authorId}推荐列表，原始json为${JSON.stringify(resJson)}`, 'info', this.taskId);
-      
+
       if (resJson.error === false) {
         this.logManager.addLog(`获取用户：${authorId}推荐列表成功！`, 'info', this.taskId);
         return resJson;
@@ -305,9 +317,9 @@ export class PixivCrawler {
    * @param maxErrors 最大连续错误数
    */
   private async reGetAuthor(
-    userIds: string[], 
-    targetNum: number, 
-    depth: number = 0, 
+    userIds: string[],
+    targetNum: number,
+    depth: number = 0,
     maxDepth: number = 5,
     errorCount: number = 0,
     maxErrors: number = 10
@@ -346,7 +358,7 @@ export class PixivCrawler {
               userIds.push(...uniqueUserIds);
               hasNewData = true;
               currentErrorCount = 0; // 重置错误计数
-              
+
               if (userIds.length >= targetNum) {
                 return userIds;
               }
@@ -381,9 +393,9 @@ export class PixivCrawler {
    * @param maxErrors 最大连续错误数
    */
   private async reGetIllust(
-    pids: string[], 
-    targetNum: number, 
-    depth: number = 0, 
+    pids: string[],
+    targetNum: number,
+    depth: number = 0,
     maxDepth: number = 5,
     errorCount: number = 0,
     maxErrors: number = 10
@@ -415,7 +427,7 @@ export class PixivCrawler {
       try {
         let pidHasNewData = false;
         let pidErrorCount = 0;
-        
+
         // 1. 处理插画推荐
         const illustRecommendJson = await this.getIllustRecommend(pid);
         if (illustRecommendJson) {
@@ -435,8 +447,8 @@ export class PixivCrawler {
 
         // 2. 处理用户推荐（独立于插画推荐）
         const illustInfo = await this.getIllustInfo(pid);
-        if (illustInfo) {
-          const userId = getIllustUser(illustInfo);
+        if (illustInfo && typeof illustInfo === 'object' && 'body' in illustInfo) {
+          const userId = getIllustUser(illustInfo as PixivIllustInfo);
           if (userId) {
             const userRecommendJson = await this.getAuthorRecommend(userId);
             if (userRecommendJson) {
@@ -491,8 +503,8 @@ export class PixivCrawler {
     
     for (const pid of pids) {
       const info = await this.getIllustInfo(pid);
-      if (info) {
-        const pidTags = getIllustTags(info);
+      if (info && typeof info === 'object' && 'body' in info) {
+        const pidTags = getIllustTags(info as PixivIllustInfo);
         if (tags.every(tag => pidTags.includes(tag))) {
           resPids.push(pid);
         }
@@ -515,7 +527,7 @@ export class PixivCrawler {
     try {
       // 创建或更新pic_task记录
       await this.supabase.createOrUpdatePicTask(pid);
-      
+
       // 获取插画推荐
       const recommendJson = await this.getIllustRecommend(pid);
       if (!recommendJson) {
@@ -531,7 +543,7 @@ export class PixivCrawler {
 
       // 限制返回数量
       const resultPids = illustRecommendPids.slice(0, targetNum);
-      
+
       // 批量创建pic_task记录
       if (resultPids.length > 0) {
         await this.supabase.batchCreatePicTasks(resultPids);
@@ -542,9 +554,9 @@ export class PixivCrawler {
 
       const endTime = Date.now();
       const elapsedTime = (endTime - startTime) / 1000;
-      
+
       this.logManager.addLog(`插画${pid}推荐PID获取完成，获取到${resultPids.length}个PID，耗时：${elapsedTime.toFixed(2)}秒`, 'success', this.taskId);
-      
+
       return resultPids;
     } catch (error) {
       this.logManager.addLog(`获取插画${pid}推荐PID异常: ${error instanceof Error ? error.message : String(error)}`, 'error', this.taskId);
@@ -565,15 +577,15 @@ export class PixivCrawler {
     try {
       // 创建或更新pic_task记录
       await this.supabase.createOrUpdatePicTask(pid);
-      
+
       // 先获取插画信息以获得作者ID
       const illustInfo = await this.getIllustInfo(pid);
-      if (!illustInfo) {
+      if (!illustInfo || typeof illustInfo !== 'object' || !('body' in illustInfo)) {
         this.logManager.addLog(`获取插画${pid}信息失败，无法获取作者推荐`, 'warning', this.taskId);
         return [];
       }
 
-      const userId = getIllustUser(illustInfo);
+      const userId = getIllustUser(illustInfo as PixivIllustInfo);
       if (!userId) {
         this.logManager.addLog(`插画${pid}没有作者信息`, 'warning', this.taskId);
         return [];
@@ -594,7 +606,7 @@ export class PixivCrawler {
 
       // 限制返回数量
       const resultPids = authorRecommendPids.slice(0, targetNum);
-      
+
       // 批量创建pic_task记录
       if (resultPids.length > 0) {
         await this.supabase.batchCreatePicTasks(resultPids);
@@ -605,9 +617,9 @@ export class PixivCrawler {
 
       const endTime = Date.now();
       const elapsedTime = (endTime - startTime) / 1000;
-      
+
       this.logManager.addLog(`作者${userId}推荐PID获取完成，获取到${resultPids.length}个PID，耗时：${elapsedTime.toFixed(2)}秒`, 'success', this.taskId);
-      
+
       return resultPids;
     } catch (error) {
       this.logManager.addLog(`获取插画${pid}作者推荐PID异常: ${error instanceof Error ? error.message : String(error)}`, 'error', this.taskId);
@@ -627,7 +639,7 @@ export class PixivCrawler {
     try {
       // 创建或更新pic_task记录
       await this.supabase.createOrUpdatePicTask(pid);
-      
+
       // 获取插画详细信息
       const info = await this.getIllustInfo(pid);
       if (!info) {
@@ -635,10 +647,28 @@ export class PixivCrawler {
         return false;
       }
 
+      // 检查是否是 404 错误（图片不存在）
+      if (info && typeof info === 'object' && 'error' in info && info.error === true && 'status' in info && info.status === 404) {
+        this.logManager.addLog(`插画${pid}不存在（404错误），删除pic_task记录并跳过处理`, 'warning', this.taskId);
+        try {
+          await this.supabase.deletePicTask(pid);
+          this.logManager.addLog(`已删除插画${pid}的pic_task记录`, 'info', this.taskId);
+        } catch (deleteError) {
+          this.logManager.addLog(`删除插画${pid}的pic_task记录失败: ${deleteError instanceof Error ? deleteError.message : String(deleteError)}`, 'error', this.taskId);
+        }
+        return false;
+      }
+
+      // 确保 info 是有效的 PixivIllustInfo 类型
+      if (!info || typeof info !== 'object' || !('body' in info)) {
+        this.logManager.addLog(`插画${pid}信息格式无效`, 'warning', this.taskId);
+        return false;
+      }
+
       // 检查热度阈值
-      const popularity = getIllustPopularity(info);
+      const popularity = getIllustPopularity(info as PixivIllustInfo);
       const roundedPopularity = Math.round(popularity * 100) / 100;
-      
+
       if (roundedPopularity < this.popularityThreshold) {
         this.logManager.addLog(`插画${pid}热度${roundedPopularity}低于阈值${this.popularityThreshold}，跳过入库`, 'info', this.taskId);
         // 更新详细信息状态（即使跳过也标记为已处理）
@@ -647,16 +677,16 @@ export class PixivCrawler {
       }
 
       // 提取插画数据
-      const viewJson = getIllustData(info);
+      const viewJson = getIllustData(info as PixivIllustInfo);
       if (!viewJson) {
         this.logManager.addLog(`插画${pid}数据解析失败`, 'warning', this.taskId);
         return false;
       }
 
-      const illustTags = getIllustTags(info);
-      const title = getIllustTitle(info);
-      const authorId = getIllustAuthorId(info);
-      const authorName = getIllustAuthorName(info);
+      const illustTags = getIllustTags(info as PixivIllustInfo);
+      const title = getIllustTitle(info as PixivIllustInfo);
+      const authorId = getIllustAuthorId(info as PixivIllustInfo);
+      const authorName = getIllustAuthorName(info as PixivIllustInfo);
       const tagsString = illustTags.join(', ');
 
       // 构建数据库记录
@@ -676,21 +706,21 @@ export class PixivCrawler {
 
       // 保存到数据库
       await this.supabase.createPic(picData);
-      
+
       // 更新详细信息状态
       await this.supabase.updateDetailInfoStatus(pid);
 
       const endTime = Date.now();
       const elapsedTime = (endTime - startTime) / 1000;
-      
+
       this.logManager.addLog(`插画${pid}详细信息获取并入库完成，热度：${roundedPopularity}，耗时：${elapsedTime.toFixed(2)}秒`, 'success', this.taskId);
-      
+
       return true;
     } catch (error) {
       // 解析错误信息，提供更友好的提示
       let errorMessage = '';
       let isDuplicate = false;
-      
+
       if (error && typeof error === 'object') {
         // 检查是否是Supabase错误
         if ('code' in error && 'message' in error) {
@@ -709,7 +739,7 @@ export class PixivCrawler {
       } else {
         errorMessage = String(error);
       }
-      
+
       if (isDuplicate) {
         this.logManager.addLog(errorMessage, 'info', this.taskId);
         // 即使重复也更新状态为已处理
@@ -750,37 +780,37 @@ export class PixivCrawler {
         const info = await this.getIllustInfo(firstPid);
         requestCount++;
 
-        if (info) {
-          const popularity = getIllustPopularity(info);
+        if (info && typeof info === 'object' && 'body' in info) {
+          const popularity = getIllustPopularity(info as PixivIllustInfo);
           const roundedPopularity = Math.round(popularity * 100) / 100;
 
-                      const viewJson = getIllustData(info);
-            if (viewJson) {
-              const illustTags = getIllustTags(info);
-              const title = getIllustTitle(info);
-              const authorId = getIllustAuthorId(info);
-              const authorName = getIllustAuthorName(info);
-              
-              this.logManager.addLog(`view_json:${JSON.stringify(viewJson)}`, 'info', this.taskId);
-              this.logManager.addLog(`tag:${JSON.stringify(illustTags)}`, 'info', this.taskId);
-              this.logManager.addLog(`title:${title}`, 'info', this.taskId);
-              this.logManager.addLog(`author_id:${authorId}, author_name:${authorName}`, 'info', this.taskId);
+          const viewJson = getIllustData(info as PixivIllustInfo);
+          if (viewJson) {
+            const illustTags = getIllustTags(info as PixivIllustInfo);
+            const title = getIllustTitle(info as PixivIllustInfo);
+            const authorId = getIllustAuthorId(info as PixivIllustInfo);
+            const authorName = getIllustAuthorName(info as PixivIllustInfo);
 
-              const tagsString = illustTags.join(', ');
+            this.logManager.addLog(`view_json:${JSON.stringify(viewJson)}`, 'info', this.taskId);
+            this.logManager.addLog(`tag:${JSON.stringify(illustTags)}`, 'info', this.taskId);
+            this.logManager.addLog(`title:${title}`, 'info', this.taskId);
+            this.logManager.addLog(`author_id:${authorId}, author_name:${authorName}`, 'info', this.taskId);
 
-              const picData: DatabasePic = {
-                pid: firstPid,
-                title: title || undefined,
-                author_id: authorId || undefined,
-                author_name: authorName || undefined,
-                tag: tagsString,
-                good: viewJson.like,
-                star: viewJson.bookmark,
-                view: viewJson.view,
-                image_path: '',
-                image_url: '',
-                popularity: roundedPopularity
-              };
+            const tagsString = illustTags.join(', ');
+
+            const picData: DatabasePic = {
+              pid: firstPid,
+              title: title || undefined,
+              author_id: authorId || undefined,
+              author_name: authorName || undefined,
+              tag: tagsString,
+              good: viewJson.like,
+              star: viewJson.bookmark,
+              view: viewJson.view,
+              image_path: '',
+              image_url: '',
+              popularity: roundedPopularity
+            };
 
             await this.supabase.createPic(picData);
             popularityCount++;
@@ -790,7 +820,7 @@ export class PixivCrawler {
         // 解析错误信息，提供更友好的提示
         let errorMessage = '';
         let isDuplicate = false;
-        
+
         if (error && typeof error === 'object') {
           // 检查是否是Supabase错误
           if ('code' in error && 'message' in error) {
@@ -809,7 +839,7 @@ export class PixivCrawler {
         } else {
           errorMessage = String(error);
         }
-        
+
         if (isDuplicate) {
           this.logManager.addLog(errorMessage, 'info', this.taskId);
         } else {
@@ -821,14 +851,14 @@ export class PixivCrawler {
 
     const endTime = Date.now();
     const elapsedTime = (endTime - startTime) / 1000;
-    
+
     // 详细的统计信息
     const totalProcessed = firstPids.length;
     const successRate = ((totalProcessed - failedCount) / totalProcessed * 100).toFixed(1);
     const popularityRate = (popularityCount / totalProcessed * 100).toFixed(1);
-    
+
     this.logManager.addLog(`处理完成，耗时：${elapsedTime.toFixed(2)}秒，本次新增${popularityCount}张图片，写入数据库失败图片${failedCount}张，热门图片比例为${popularityRate}%`, 'info', this.taskId);
-    
+
     // 添加详细的爬取完成总结
     this.logManager.addLog(`📊 爬取任务完成统计：`, 'success', this.taskId);
     this.logManager.addLog(`🎯 目标数量: ${targetNum} 张`, 'success', this.taskId);

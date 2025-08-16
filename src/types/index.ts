@@ -23,6 +23,16 @@ export interface PixivIllustInfo {
   error: boolean | string;
 }
 
+// 用于处理 404 错误的类型
+export interface PixivIllustError {
+  error: true;
+  status: 404;
+  message: string;
+}
+
+// 联合类型：正常的插画信息或 404 错误
+export type PixivIllustResult = PixivIllustInfo | PixivIllustError;
+
 export interface PixivRecommendResponse {
   body: {
     illusts: Array<{ id: string }>;
