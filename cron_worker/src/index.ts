@@ -253,7 +253,6 @@ async function triggerIllustRecommendTasks(env: Env): Promise<void> {
       .from('pic_task')
       .select('pid')
       .eq('illust_recommend_crawled', false)
-      .limit(workerBases.length * 2); // 多查询一些，因为后面要过滤
     
     if (error) {
       console.error(`❌ 查询插画推荐任务失败:`, error);
@@ -372,7 +371,6 @@ async function triggerAuthorRecommendTasks(env: Env): Promise<void> {
       .from('pic_task')
       .select('pid')
       .eq('author_recommend_crawled', false)
-      .limit(workerBases.length * 3); // 多查询一些，因为后面要过滤
     
     if (error) {
       console.error(`❌ 查询作者推荐任务失败:`, error);
