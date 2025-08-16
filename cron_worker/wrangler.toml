@@ -1,4 +1,4 @@
-name = "pixiv-cron-worker"
+name = "serverless-pixiv-crawler"
 main = "src/index.ts"
 compatibility_date = "2024-11-21"
 
@@ -21,6 +21,9 @@ WORKER_API_BASES = "https://pixiv.chaosyn.com/api"
 # 10分钟任务用：目标数量和热度阈值（可选）
 TEN_MIN_TARGET_NUM = "100"
 TEN_MIN_THRESHOLD = "0"
+
+# 推荐任务popularity过滤阈值（只处理popularity大于此值的插画）
+POPULARITY_RECOMMEND = "0.18"
 
 # Supabase配置（用于pic_task表查询）
 # 注意：敏感信息应使用 wrangler secret put 命令设置

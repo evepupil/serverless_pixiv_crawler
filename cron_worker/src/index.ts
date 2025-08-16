@@ -5,6 +5,7 @@ export interface Env {
   TEN_MIN_THRESHOLD?: string;
   SUPABASE_URL?: string; // Supabase项目URL
   SUPABASE_SERVICE_ROLE_KEY?: string; // Supabase服务角色密钥
+  POPULARITY_RECOMMEND?: string; // 插画推荐任务的popularity阈值
 }
 
 async function callApi(url: string, options?: RequestInit): Promise<Response> {
@@ -208,6 +209,15 @@ async function triggerMonthly(env: Env): Promise<void> {
   }
 }
 
+
+/**
+ * 触发推荐任务爬取任务 - 每10分钟获取未爬取首页推荐的任务
+ * @param env 环境变量配置
+ */
+async function triggerRecommendTasks(env: Env): Promise<void> {
+  await triggerIllustRecommendTasks(env);
+  await triggerAuthorRecommendTasks(env);
+}
 /**
  * 触发插画推荐爬取任务 - 每10分钟获取未爬取插画推荐的任务
  * @param env 环境变量配置
@@ -221,7 +231,8 @@ async function triggerIllustRecommendTasks(env: Env): Promise<void> {
   }
 
   const timestamp = new Date().toISOString();
-  console.log(`[${timestamp}] 开始获取未爬取插画推荐任务 - 节点数量: ${workerBases.length}`);
+  const popularityThreshold = parseFloat(env.POPULARITY_RECOMMEND || '0.18');
+  console.log(`[${timestamp}] 开始获取未爬取插画推荐任务 - 节点数量: ${workerBases.length}, popularity阈值: ${popularityThreshold}`);
 
   try {
     // 初始化Supabase客户端
@@ -239,8 +250,12 @@ async function triggerIllustRecommendTasks(env: Env): Promise<void> {
     // 直接查询pic_task表获取未爬取插画推荐的任务
     const { data: tasks, error } = await supabase
       .from('pic_task')
-      .select('pid')
+      .select(`
+        pid,
+        pic!inner(popularity)
+      `)
       .eq('illust_recommend_crawled', false)
+      .gte('pic.popularity', popularityThreshold)
       .limit(workerBases.length);
     
     if (error) {
@@ -307,7 +322,8 @@ async function triggerAuthorRecommendTasks(env: Env): Promise<void> {
   }
 
   const timestamp = new Date().toISOString();
-  console.log(`[${timestamp}] 开始获取未爬取作者推荐任务 - 节点数量: ${workerBases.length}`);
+  const popularityThreshold = parseFloat(env.POPULARITY_RECOMMEND || '0.18');
+  console.log(`[${timestamp}] 开始获取未爬取作者推荐任务 - 节点数量: ${workerBases.length}, popularity阈值: ${popularityThreshold}`);
 
   try {
     // 初始化Supabase客户端
@@ -325,8 +341,12 @@ async function triggerAuthorRecommendTasks(env: Env): Promise<void> {
     // 直接查询pic_task表获取未爬取作者推荐的任务
     const { data: tasks, error } = await supabase
       .from('pic_task')
-      .select('pid')
+      .select(`
+        pid,
+        pic!inner(popularity)
+      `)
       .eq('author_recommend_crawled', false)
+      .gte('pic.popularity', popularityThreshold)
       .limit(workerBases.length);
     
     if (error) {
@@ -484,10 +504,9 @@ export default {
     const cronExpr = (event as any).cron as string;
     try {
       switch (cronExpr) {
-        case '*/10 * * * *': // 每10分钟 - 原有任务
+        case '*/10 * * * *': // 每10分钟，触发推荐任务爬取任务
           //await triggerTenMin(env);
-          await triggerIllustRecommendTasks(env);
-          await triggerAuthorRecommendTasks(env);
+          await triggerRecommendTasks(env);
           break;
         case '* * * * *': // 每1分钟 - 详细信息任务
           await triggerDetailInfoTasks(env);
