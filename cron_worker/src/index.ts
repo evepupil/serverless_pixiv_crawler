@@ -248,16 +248,12 @@ async function triggerIllustRecommendTasks(env: Env): Promise<void> {
     
     const supabase = createClient(supabaseUrl, supabaseKey);
     
-    // 直接查询pic_task表获取未爬取插画推荐的任务
+    // 先查询pic_task表获取未爬取插画推荐的任务
     const { data: tasks, error } = await supabase
       .from('pic_task')
-      .select(`
-        pid,
-        pic!inner(popularity)
-      `)
+      .select('pid')
       .eq('illust_recommend_crawled', false)
-      .gte('pic.popularity', popularityThreshold)
-      .limit(workerBases.length);
+      .limit(workerBases.length * 2); // 多查询一些，因为后面要过滤
     
     if (error) {
       console.error(`❌ 查询插画推荐任务失败:`, error);
@@ -269,10 +265,42 @@ async function triggerIllustRecommendTasks(env: Env): Promise<void> {
       return;
     }
 
-    console.log(`获取到 ${tasks.length} 个插画推荐任务，开始分发给从节点`);
+    // 获取所有PID
+    const pids = tasks.map(task => task.pid);
+    
+    // 查询pic表获取popularity信息
+    const { data: picData, error: picError } = await supabase
+      .from('pic')
+      .select('pid, popularity')
+      .in('pid', pids)
+      .gte('popularity', popularityThreshold);
+    
+    if (picError) {
+      console.error(`❌ 查询pic表失败:`, picError);
+      return;
+    }
+    
+    // 创建popularity映射
+    const popularityMap = new Map();
+    picData?.forEach(pic => {
+      popularityMap.set(pic.pid, pic.popularity);
+    });
+    
+    // 过滤出满足popularity条件的任务
+    const filteredTasks = tasks.filter(task => popularityMap.has(task.pid));
+    
+    if (filteredTasks.length === 0) {
+      console.log(`暂无满足popularity阈值(${popularityThreshold})的插画推荐任务`);
+      return;
+    }
+    
+    // 限制任务数量为节点数量
+    const finalTasks = filteredTasks.slice(0, workerBases.length);
+
+    console.log(`获取到 ${finalTasks.length} 个插画推荐任务，开始分发给从节点`);
 
     // 分发任务给从节点
-    const results = await Promise.allSettled(tasks.map(async (task: any, idx: number) => {
+    const results = await Promise.allSettled(finalTasks.map(async (task: any, idx: number) => {
       const base = workerBases[idx % workerBases.length].replace(/\/$/, '');
       const requestTimestamp = new Date().toISOString();
       
@@ -339,16 +367,12 @@ async function triggerAuthorRecommendTasks(env: Env): Promise<void> {
     
     const supabase = createClient(supabaseUrl, supabaseKey);
     
-    // 直接查询pic_task表获取未爬取作者推荐的任务
+    // 先查询pic_task表获取未爬取作者推荐的任务
     const { data: tasks, error } = await supabase
       .from('pic_task')
-      .select(`
-        pid,
-        pic!inner(popularity)
-      `)
+      .select('pid')
       .eq('author_recommend_crawled', false)
-      .gte('pic.popularity', popularityThreshold)
-      .limit(workerBases.length);
+      .limit(workerBases.length * 3); // 多查询一些，因为后面要过滤
     
     if (error) {
       console.error(`❌ 查询作者推荐任务失败:`, error);
@@ -360,10 +384,42 @@ async function triggerAuthorRecommendTasks(env: Env): Promise<void> {
       return;
     }
 
-    console.log(`获取到 ${tasks.length} 个作者推荐任务，开始分发给从节点`);
+    // 获取所有PID
+    const pids = tasks.map(task => task.pid);
+    
+    // 查询pic表获取popularity信息
+    const { data: picData, error: picError } = await supabase
+      .from('pic')
+      .select('pid, popularity')
+      .in('pid', pids)
+      .gte('popularity', popularityThreshold);
+    
+    if (picError) {
+      console.error(`❌ 查询pic表失败:`, picError);
+      return;
+    }
+    
+    // 创建popularity映射
+    const popularityMap = new Map();
+    picData?.forEach(pic => {
+      popularityMap.set(pic.pid, pic.popularity);
+    });
+    
+    // 过滤出满足popularity条件的任务
+    const filteredTasks = tasks.filter(task => popularityMap.has(task.pid));
+    
+    if (filteredTasks.length === 0) {
+      console.log(`暂无满足popularity阈值(${popularityThreshold})的作者推荐任务`);
+      return;
+    }
+    
+    // 限制任务数量为节点数量
+    const finalTasks = filteredTasks.slice(0, workerBases.length);
+
+    console.log(`获取到 ${finalTasks.length} 个作者推荐任务，开始分发给从节点`);
 
     // 分发任务给从节点
-    const results = await Promise.allSettled(tasks.map(async (task: any, idx: number) => {
+    const results = await Promise.allSettled(finalTasks.map(async (task: any, idx: number) => {
       const base = workerBases[idx % workerBases.length].replace(/\/$/, '');
       const requestTimestamp = new Date().toISOString();
       
