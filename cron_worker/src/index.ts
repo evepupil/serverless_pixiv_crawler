@@ -1,3 +1,5 @@
+import { time } from 'console';
+
 export interface Env {
   PRIMARY_API_BASE: string; // 主节点
   WORKER_API_BASES?: string; // 从节点，逗号分隔
@@ -510,6 +512,13 @@ async function triggerHomeTasks(env: Env): Promise<void> {
   }
 }
 
+async function triggerNTimesDetailInfoTasks(n:number, env: Env) {
+  for (let i = 0; i < n; i++) {
+    await triggerDetailInfoTasks(env);
+    await new Promise(resolve => setTimeout(resolve, Math.floor(10000/n)));
+  }
+}
+
 /**
  * 触发详细信息爬取任务 - 每1分钟获取未爬取详细信息的任务
  * @param env 环境变量配置
@@ -619,7 +628,7 @@ export default {
           await triggerRecommendTasks(env);
           break;
         case '* * * * *': // 每1分钟 - 详细信息任务
-          await triggerDetailInfoTasks(env);
+          await triggerNTimesDetailInfoTasks(10, env);
           break;
         case '0 1 * * *':
           await triggerDaily(env);
