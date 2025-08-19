@@ -250,53 +250,62 @@ async function triggerIllustRecommendTasks(env: Env): Promise<void> {
     
     const supabase = createClient(supabaseUrl, supabaseKey);
     
-    // 先查询pic_task表获取未爬取插画推荐的任务
-    const { data: tasks, error } = await supabase
-      .from('pic_task')
-      .select('pid')
-      .eq('illust_recommend_crawled', false)
-    
-    if (error) {
-      console.error(`❌ 查询插画推荐任务失败:`, error);
-      return;
-    }
-    
-    if (!tasks || tasks.length === 0) {
-      console.log('暂无未爬取的插画推荐任务');
-      return;
+    // 分页扫描 pic_task，避免默认1000行页大小导致遗漏
+    const pageSize = 1000;
+    let offset = 0;
+    const eligibleTasks: { pid: string }[] = [];
+
+    while (eligibleTasks.length < workerBases.length) {
+      const { data: pageTasks, error: pageError } = await supabase
+        .from('pic_task')
+        .select('pid')
+        .eq('illust_recommend_crawled', false)
+        .order('updated_at', { ascending: true })
+        .range(offset, offset + pageSize - 1);
+
+      if (pageError) {
+        console.error(`❌ 查询插画推荐任务分页失败:`, pageError);
+        break;
+      }
+
+      if (!pageTasks || pageTasks.length === 0) {
+        break;
+      }
+
+      const pagePids = pageTasks.map(t => t.pid);
+      const { data: picData, error: picError } = await supabase
+        .from('pic')
+        .select('pid')
+        .in('pid', pagePids)
+        .gte('popularity', popularityThreshold);
+
+      if (picError) {
+        console.error(`❌ 查询pic表失败:`, picError);
+        break;
+      }
+
+      const qualifiedPidSet = new Set((picData || []).map(p => p.pid));
+      for (const t of pageTasks) {
+        if (qualifiedPidSet.has(t.pid)) {
+          eligibleTasks.push({ pid: t.pid });
+          if (eligibleTasks.length >= workerBases.length) break;
+        }
+      }
+
+      if (pageTasks.length < pageSize) {
+        // 已到尾页
+        break;
+      }
+      offset += pageSize;
     }
 
-    // 获取所有PID
-    const pids = tasks.map(task => task.pid);
-    
-    // 查询pic表获取popularity信息
-    const { data: picData, error: picError } = await supabase
-      .from('pic')
-      .select('pid, popularity')
-      .in('pid', pids)
-      .gte('popularity', popularityThreshold);
-    
-    if (picError) {
-      console.error(`❌ 查询pic表失败:`, picError);
-      return;
-    }
-    
-    // 创建popularity映射
-    const popularityMap = new Map();
-    picData?.forEach(pic => {
-      popularityMap.set(pic.pid, pic.popularity);
-    });
-    
-    // 过滤出满足popularity条件的任务
-    const filteredTasks = tasks.filter(task => popularityMap.has(task.pid));
-    
-    if (filteredTasks.length === 0) {
+    if (eligibleTasks.length === 0) {
       console.log(`暂无满足popularity阈值(${popularityThreshold})的插画推荐任务`);
       return;
     }
-    
+
     // 限制任务数量为节点数量
-    const finalTasks = filteredTasks.slice(0, workerBases.length);
+    const finalTasks = eligibleTasks.slice(0, workerBases.length);
 
     console.log(`获取到 ${finalTasks.length} 个插画推荐任务，开始分发给从节点`);
 
@@ -368,53 +377,62 @@ async function triggerAuthorRecommendTasks(env: Env): Promise<void> {
     
     const supabase = createClient(supabaseUrl, supabaseKey);
     
-    // 先查询pic_task表获取未爬取作者推荐的任务
-    const { data: tasks, error } = await supabase
-      .from('pic_task')
-      .select('pid')
-      .eq('author_recommend_crawled', false)
-    
-    if (error) {
-      console.error(`❌ 查询作者推荐任务失败:`, error);
-      return;
-    }
-    
-    if (!tasks || tasks.length === 0) {
-      console.log('暂无未爬取的作者推荐任务');
-      return;
+    // 分页扫描 pic_task，避免默认1000行页大小导致遗漏
+    const pageSize = 1000;
+    let offset = 0;
+    const eligibleTasks: { pid: string }[] = [];
+
+    while (eligibleTasks.length < workerBases.length) {
+      const { data: pageTasks, error: pageError } = await supabase
+        .from('pic_task')
+        .select('pid')
+        .eq('author_recommend_crawled', false)
+        .order('updated_at', { ascending: true })
+        .range(offset, offset + pageSize - 1);
+
+      if (pageError) {
+        console.error(`❌ 查询作者推荐任务分页失败:`, pageError);
+        break;
+      }
+
+      if (!pageTasks || pageTasks.length === 0) {
+        break;
+      }
+
+      const pagePids = pageTasks.map(t => t.pid);
+      const { data: picData, error: picError } = await supabase
+        .from('pic')
+        .select('pid')
+        .in('pid', pagePids)
+        .gte('popularity', popularityThreshold);
+
+      if (picError) {
+        console.error(`❌ 查询pic表失败:`, picError);
+        break;
+      }
+
+      const qualifiedPidSet = new Set((picData || []).map(p => p.pid));
+      for (const t of pageTasks) {
+        if (qualifiedPidSet.has(t.pid)) {
+          eligibleTasks.push({ pid: t.pid });
+          if (eligibleTasks.length >= workerBases.length) break;
+        }
+      }
+
+      if (pageTasks.length < pageSize) {
+        // 已到尾页
+        break;
+      }
+      offset += pageSize;
     }
 
-    // 获取所有PID
-    const pids = tasks.map(task => task.pid);
-    
-    // 查询pic表获取popularity信息
-    const { data: picData, error: picError } = await supabase
-      .from('pic')
-      .select('pid, popularity')
-      .in('pid', pids)
-      .gte('popularity', popularityThreshold);
-    
-    if (picError) {
-      console.error(`❌ 查询pic表失败:`, picError);
-      return;
-    }
-    
-    // 创建popularity映射
-    const popularityMap = new Map();
-    picData?.forEach(pic => {
-      popularityMap.set(pic.pid, pic.popularity);
-    });
-    
-    // 过滤出满足popularity条件的任务
-    const filteredTasks = tasks.filter(task => popularityMap.has(task.pid));
-    
-    if (filteredTasks.length === 0) {
+    if (eligibleTasks.length === 0) {
       console.log(`暂无满足popularity阈值(${popularityThreshold})的作者推荐任务`);
       return;
     }
-    
+
     // 限制任务数量为节点数量
-    const finalTasks = filteredTasks.slice(0, workerBases.length);
+    const finalTasks = eligibleTasks.slice(0, workerBases.length);
 
     console.log(`获取到 ${finalTasks.length} 个作者推荐任务，开始分发给从节点`);
 

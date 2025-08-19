@@ -16,14 +16,14 @@ crons = [
 PRIMARY_API_BASE = "https://pixiv.chaosyn.com/api"
 
 # 从节点 API 列表（逗号分隔）。用于分发10分钟任务的单次爬取请求
-WORKER_API_BASES = "https://pixiv.chaosyn.com/api"
+WORKER_API_BASES = "https://pixiv.chaosyn.com/api,https://serverless-pixiv-crawler-lilac.vercel.app,https://serverless-pixiv-crawler-xi.vercel.app/api"
 
 # 10分钟任务用：目标数量和热度阈值（可选）
 TEN_MIN_TARGET_NUM = "100"
 TEN_MIN_THRESHOLD = "0"
 
 # 推荐任务popularity过滤阈值（只处理popularity大于此值的插画）
-POPULARITY_RECOMMEND = "0.18"
+POPULARITY_RECOMMEND = "0.15"
 
 # Supabase配置（用于pic_task表查询）
 # 注意：敏感信息应使用 wrangler secret put 命令设置
