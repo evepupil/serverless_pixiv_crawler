@@ -623,7 +623,7 @@ export default {
     const cronExpr = (event as any).cron as string;
     try {
       switch (cronExpr) {
-        case '*/10 * * * *': // 每10分钟，触发推荐任务爬取任务
+        case '*/3 * * * *': // 每3分钟，触发推荐任务爬取任务
           //await triggerTenMin(env);
           await triggerRecommendTasks(env);
           break;
