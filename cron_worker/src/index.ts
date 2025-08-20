@@ -531,9 +531,116 @@ async function triggerHomeTasks(env: Env): Promise<void> {
 }
 
 async function triggerNTimesDetailInfoTasks(n:number, env: Env) {
-  for (let i = 0; i < n; i++) {
-    await triggerDetailInfoTasks(env);
-    await new Promise(resolve => setTimeout(resolve, Math.floor(10000/n)));
+  const workersRaw = (env.WORKER_API_BASES || '').trim();
+  const workerBases = workersRaw ? workersRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
+  if (workerBases.length === 0) {
+    console.log('无从节点配置，跳过详细信息任务');
+    return;
+  }
+
+  const perRound = workerBases.length;
+  const totalNeeded = perRound * n;
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] 准备批量获取详细信息任务PID - 需要总数: ${totalNeeded} (每轮 ${perRound}，轮数 ${n})`);
+
+  try {
+    const { createClient } = await import('@supabase/supabase-js');
+    const supabaseUrl = env.SUPABASE_URL;
+    const supabaseKey = env.SUPABASE_SERVICE_ROLE_KEY;
+    
+    if (!supabaseUrl || !supabaseKey) {
+      console.error('❌ 缺少Supabase环境变量');
+      return;
+    }
+    
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // 分页扫描以获取足够的未爬取详细信息的PID
+    const pageSize = 1000;
+    let offset = 0;
+    const allPids: string[] = [];
+
+    while (allPids.length < totalNeeded) {
+      const { data: pageTasks, error: pageError } = await supabase
+        .from('pic_task')
+        .select('pid')
+        .eq('detail_info_crawled', false)
+        .order('updated_at', { ascending: true })
+        .range(offset, offset + pageSize - 1);
+
+      if (pageError) {
+        console.error('❌ 查询详细信息任务分页失败:', pageError);
+        break;
+      }
+
+      if (!pageTasks || pageTasks.length === 0) {
+        break;
+      }
+
+      for (const t of pageTasks) {
+        allPids.push(t.pid);
+        if (allPids.length >= totalNeeded) break;
+      }
+
+      if (pageTasks.length < pageSize) {
+        break;
+      }
+      offset += pageSize;
+    }
+
+    if (allPids.length === 0) {
+      console.log('暂无未爬取的详细信息任务');
+      return;
+    }
+
+    console.log(`已获取 ${allPids.length} 个待分发PID，将分成 ${n} 轮分发（每轮最多 ${perRound} 个）`);
+
+    // 分n轮分配，轮间隔与原逻辑一致
+    const roundDelayMs = Math.floor(10000 / n);
+
+    for (let i = 0; i < n; i++) {
+      const start = i * perRound;
+      const roundPids = allPids.slice(start, start + perRound);
+      if (roundPids.length === 0) {
+        break;
+      }
+
+      const roundTs = new Date().toISOString();
+      console.log(`[${roundTs}] 开始第 ${i + 1}/${n} 轮分发，共 ${roundPids.length} 个PID`);
+
+      const results = await Promise.allSettled(roundPids.map(async (pid: string, idx: number) => {
+        const base = workerBases[idx % workerBases.length].replace(/\/$/, '');
+        const requestTimestamp = new Date().toISOString();
+        console.log(`[${requestTimestamp}] 分发详细信息任务 PID ${pid} 给从节点 ${base}`);
+        try {
+          const taskResponse = await callApi(`${base}/?action=pid-detail-info&pid=${pid}`, { method: 'GET' });
+          const responseTimestamp = new Date().toISOString();
+          if (taskResponse.ok) {
+            const taskResponseData = await taskResponse.json().catch(() => ({}));
+            console.log(`[${responseTimestamp}] ✅ 详细信息任务 PID ${pid} 分发成功`);
+            return { pid, base, success: true, response: taskResponseData };
+          } else {
+            console.log(`[${responseTimestamp}] ❌ 详细信息任务 PID ${pid} 分发失败 - 状态码: ${taskResponse.status}`);
+            return { pid, base, success: false, error: `HTTP ${taskResponse.status}` };
+          }
+        } catch (error) {
+          const errorTimestamp = new Date().toISOString();
+          console.error(`[${errorTimestamp}] ❌ 详细信息任务 PID ${pid} 分发异常:`, error);
+          return { pid, base, success: false, error: error instanceof Error ? error.message : String(error) };
+        }
+      }));
+
+      const successCount = results.filter(r => r.status === 'fulfilled' && r.value.success).length;
+      const failureCount = results.length - successCount;
+      const completionTimestamp = new Date().toISOString();
+      console.log(`[${completionTimestamp}] 第 ${i + 1}/${n} 轮分发完成 - 成功: ${successCount}/${results.length}, 失败: ${failureCount}`);
+
+      if (i < n - 1) {
+        await new Promise(resolve => setTimeout(resolve, roundDelayMs));
+      }
+    }
+  } catch (err) {
+    console.error('❌ triggerNTimesDetailInfoTasks 异常:', err);
   }
 }
 
