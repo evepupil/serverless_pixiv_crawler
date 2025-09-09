@@ -565,9 +565,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               
               // 设置响应头
               res.setHeader('Content-Type', result.contentType);
-              res.setHeader('Cache-Control', 'public, max-age=3600'); // 1小时缓存
+              res.setHeader('Cache-Control', 'public, max-age=31536000'); // 1年缓存
               res.setHeader('Access-Control-Allow-Origin', '*');
-              
+              res.setHeader('CDN-Cache-Control', 'public, max-age=31536000');
               // 返回图片数据
               res.status(200).send(result.imageBuffer);
             } else {
