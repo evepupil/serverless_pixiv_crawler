@@ -283,7 +283,6 @@ export class PixivCrawler {
         rank: item.rank,
         crawl_time: now
       }));
-      console.log('rankings:', rankings);
       this.logManager.addLog(`获取${mode}榜单成功，共 ${rankings.length} 个PID`, 'info', this.taskId);
       return { body: { rankings }, error: false };
     } catch (error) {

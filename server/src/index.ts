@@ -3,6 +3,7 @@ import path from 'path';
 import dotenv from 'dotenv';
 import { TursoService } from './db/turso';
 import { PixivCrawler, ConsoleLogManager } from './crawler';
+import { PixivProxy, PixivDownloader } from './proxy';
 import { checkEnvironmentVariables, checkB2Config, getPixivHeaders, CRAWLER_CONFIG } from './config';
 
 // 加载环境变量 (优先加载 .env.local，然后加载 .env)
@@ -347,7 +348,6 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
                               rankType === 'weekly' ? crawler.getWeeklyRank :
                               crawler.getMonthlyRank;
             const result = await rankMethod.call(crawler);
-            console.log(result);
             if (result && result.error === false) {
               const rankDate = new Date().toISOString().slice(0, 10);
               await db.upsertRankings(result.body.rankings, rankDate, rankType);
@@ -371,6 +371,66 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
           } catch (error) {
             sendJson(res, 500, {
               error: `获取${rankType}排行榜失败`,
+              message: error instanceof Error ? error.message : '未知错误'
+            });
+          }
+          break;
+        }
+
+        // ========================================
+        // 图片代理 API
+        // ========================================
+        case 'proxy': {
+          // 智能图片代理：先查B2缓存，无则从Pixiv抓取
+          const proxyPid = query.pid;
+          const targetSize = query.size || 'original';
+
+          if (!proxyPid) {
+            sendJson(res, 400, { error: '缺少 pid 参数' });
+            return;
+          }
+
+          try {
+            const taskId = `proxy_${Date.now()}`;
+            const headersList = getPixivHeaders();
+            const proxy = new PixivProxy(headersList[0], logManager, taskId, db);
+
+            const result = await proxy.proxyImage(proxyPid, targetSize);
+
+            if (result.success) {
+              if (result.fromCache && result.b2Url) {
+                // B2缓存命中，重定向
+                res.writeHead(302, { 'Location': result.b2Url });
+                res.end();
+              } else if (result.imageBuffer) {
+                // 从Pixiv获取，直接返回图片
+                res.writeHead(200, {
+                  'Content-Type': result.contentType || 'image/jpeg',
+                  'Content-Length': result.imageBuffer.length,
+                  'Cache-Control': 'public, max-age=86400'
+                });
+                res.end(result.imageBuffer);
+
+                // 异步触发下载归档到B2（不阻塞响应）
+                (async () => {
+                  try {
+                    const downloadTaskId = `async_download_${proxyPid}_${Date.now()}`;
+                    const downloader = new PixivDownloader(headersList[0], logManager, downloadTaskId, db);
+                    await downloader.downloadAndArchive(proxyPid, targetSize);
+                    console.log(`[${downloadTaskId}] 异步归档完成: ${proxyPid}`);
+                  } catch (err) {
+                    console.error(`异步归档失败 ${proxyPid}:`, err);
+                  }
+                })();
+              } else {
+                sendJson(res, 500, { error: '获取图片失败' });
+              }
+            } else {
+              sendJson(res, 404, { error: result.error || '图片不存在' });
+            }
+          } catch (error) {
+            sendJson(res, 500, {
+              error: '代理请求失败',
               message: error instanceof Error ? error.message : '未知错误'
             });
           }
@@ -572,6 +632,42 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
               console.log(`[${taskId}] 任务完成，成功: ${successCount}/${uncompletedPids.length}`);
             } catch (error) {
               console.error(`[${taskId}] 任务失败:`, error);
+            }
+          })();
+          break;
+        }
+
+        case 'batch-download': {
+          // 批量下载图片到B2
+          const pids = body.pids as string[];
+          const size = body.size || 'original';
+
+          if (!pids || !Array.isArray(pids) || pids.length === 0) {
+            sendJson(res, 400, { error: '缺少 pids 数组参数' });
+            return;
+          }
+
+          const taskId = `batch_download_${Date.now()}`;
+          const headersList = getPixivHeaders();
+          const downloader = new PixivDownloader(headersList[0], logManager, taskId, db);
+
+          // 先返回响应
+          sendJson(res, 200, {
+            success: true,
+            message: '批量下载任务已启动',
+            taskId,
+            count: pids.length,
+            timestamp: new Date().toISOString()
+          });
+
+          // 异步执行下载
+          (async () => {
+            try {
+              const results = await downloader.batchDownloadAndArchive(pids, size);
+              const successCount = results.filter(r => r.success).length;
+              console.log(`[${taskId}] 批量下载完成: ${successCount}/${pids.length}`);
+            } catch (error) {
+              console.error(`[${taskId}] 批量下载失败:`, error);
             }
           })();
           break;
