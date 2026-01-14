@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import { TursoService } from './db/turso';
 import { PixivCrawler, ConsoleLogManager } from './crawler';
 import { PixivProxy, PixivDownloader } from './proxy';
+import { TaskScheduler } from './scheduler';
 import { checkEnvironmentVariables, checkB2Config, getPixivHeaders, CRAWLER_CONFIG } from './config';
 
 // 加载环境变量 (优先加载 .env.local，然后加载 .env)
@@ -15,6 +16,7 @@ dotenv.config(); // 作为备选，加载 .env
 // ========================================
 
 let dbService: TursoService | null = null;
+let scheduler: TaskScheduler | null = null;
 const logManager = new ConsoleLogManager();
 
 /**
@@ -202,6 +204,75 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
           }
           const exists = await db.existsPid(checkPid);
           sendJson(res, 200, { pid: checkPid, exists });
+          break;
+
+        // ========================================
+        // 调度器相关 API
+        // ========================================
+
+        case 'scheduler-status':
+          // 获取调度器状态
+          if (scheduler) {
+            sendJson(res, 200, {
+              success: true,
+              ...scheduler.getStatus(),
+              timestamp: new Date().toISOString()
+            });
+          } else {
+            sendJson(res, 200, {
+              success: false,
+              isRunning: false,
+              message: '调度器未初始化',
+              timestamp: new Date().toISOString()
+            });
+          }
+          break;
+
+        case 'scheduler-start':
+          // 启动调度器
+          if (scheduler) {
+            scheduler.start();
+            sendJson(res, 200, {
+              success: true,
+              message: '调度器已启动',
+              timestamp: new Date().toISOString()
+            });
+          } else {
+            sendJson(res, 500, { error: '调度器未初始化' });
+          }
+          break;
+
+        case 'scheduler-stop':
+          // 停止调度器
+          if (scheduler) {
+            scheduler.stop();
+            sendJson(res, 200, {
+              success: true,
+              message: '调度器已停止',
+              timestamp: new Date().toISOString()
+            });
+          } else {
+            sendJson(res, 500, { error: '调度器未初始化' });
+          }
+          break;
+
+        case 'scheduler-trigger':
+          // 手动触发任务
+          const triggerAction = query.task;
+          if (!triggerAction) {
+            sendJson(res, 400, { error: '缺少 task 参数' });
+            return;
+          }
+          if (scheduler) {
+            scheduler.triggerTask(triggerAction);
+            sendJson(res, 200, {
+              success: true,
+              message: `已触发任务: ${triggerAction}`,
+              timestamp: new Date().toISOString()
+            });
+          } else {
+            sendJson(res, 500, { error: '调度器未初始化' });
+          }
           break;
 
         // ========================================
@@ -443,6 +514,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
             service: 'Pixiv Crawler Tokyo Server',
             version: '1.0.0',
             database: 'Turso (libSQL)',
+            scheduler: scheduler ? scheduler.getStatus() : { isRunning: false },
             endpoints: {
               GET: [
                 '?action=status - 服务状态',
@@ -452,11 +524,16 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
                 '?action=random-pids&count=10 - 随机获取PID',
                 '?action=uncompleted-tasks&type=xxx&limit=100 - 获取未完成任务',
                 '?action=exists&pid=xxx - 检查PID是否存在',
+                '?action=scheduler-status - 调度器状态',
+                '?action=scheduler-start - 启动调度器',
+                '?action=scheduler-stop - 停止调度器',
+                '?action=scheduler-trigger&task=xxx - 手动触发任务',
                 '?action=illust-recommend-pids&pid=xxx&targetNum=30 - 获取插画推荐PID',
                 '?action=author-recommend-pids&pid=xxx&targetNum=30 - 获取作者推荐PID',
                 '?action=pid-detail-info&pid=xxx&threshold=0 - 获取PID详细信息并入库',
                 '?action=home - 获取首页推荐PID',
-                '?action=daily|weekly|monthly - 获取排行榜'
+                '?action=daily|weekly|monthly - 获取排行榜',
+                '?action=proxy&pid=xxx&size=original - 图片代理'
               ],
               POST: [
                 '{action: "upsert-pic", pic: {...}} - 插入或更新图片',
@@ -464,7 +541,8 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
                 '{action: "update-task-status", pid, taskType, count} - 更新任务状态',
                 '{action: "batch-exists", pids: [...]} - 批量检查PID存在',
                 '{action: "batch-detail-info", pids: [...], threshold} - 批量获取详细信息',
-                '{action: "crawl-uncompleted", taskType, limit, threshold} - 爬取未完成任务'
+                '{action: "crawl-uncompleted", taskType, limit, threshold} - 爬取未完成任务',
+                '{action: "batch-download", pids: [...], size} - 批量下载图片到B2'
               ]
             }
           });
@@ -721,11 +799,27 @@ server.listen(PORT, () => {
   } catch (error) {
     console.error('❌ 数据库连接失败:', error);
   }
+
+  // 初始化并启动调度器
+  try {
+    scheduler = new TaskScheduler(PORT, logManager);
+    scheduler.start();
+    console.log('✅ 任务调度器已启动');
+  } catch (error) {
+    console.error('❌ 任务调度器启动失败:', error);
+  }
 });
 
 // 优雅关闭
 process.on('SIGTERM', async () => {
   console.log('收到 SIGTERM 信号，正在关闭服务器...');
+
+  // 停止调度器
+  if (scheduler) {
+    scheduler.stop();
+    console.log('调度器已停止');
+  }
+
   if (dbService) {
     await dbService.close();
   }
@@ -737,6 +831,13 @@ process.on('SIGTERM', async () => {
 
 process.on('SIGINT', async () => {
   console.log('收到 SIGINT 信号，正在关闭服务器...');
+
+  // 停止调度器
+  if (scheduler) {
+    scheduler.stop();
+    console.log('调度器已停止');
+  }
+
   if (dbService) {
     await dbService.close();
   }
