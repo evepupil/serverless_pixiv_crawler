@@ -347,6 +347,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
                               rankType === 'weekly' ? crawler.getWeeklyRank :
                               crawler.getMonthlyRank;
             const result = await rankMethod.call(crawler);
+            console.log(result);
             if (result && result.error === false) {
               const rankDate = new Date().toISOString().slice(0, 10);
               await db.upsertRankings(result.body.rankings, rankDate, rankType);

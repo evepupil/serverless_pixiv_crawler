@@ -67,6 +67,29 @@ export interface PixivDailyRankResponse {
   error: boolean;
 }
 
+// Pixiv 排行榜 JSON API 响应类型
+export interface PixivRankingJsonItem {
+  illust_id: number;
+  rank: number;
+  title: string;
+  tags: string[];
+  user_id: number;
+  user_name: string;
+  rating_count: number;
+  view_count: number;
+  url: string;
+  width: number;
+  height: number;
+}
+
+export interface PixivRankingJsonResponse {
+  contents: PixivRankingJsonItem[];
+  mode: string;
+  content: string;
+  page: number;
+  rank_total: number;
+}
+
 export interface PixivHeaders {
   'User-Agent': string;
   cookie: string;

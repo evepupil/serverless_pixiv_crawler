@@ -5,6 +5,7 @@ import {
   PixivRecommendResponse,
   PixivUserRecommendResponse,
   PixivDailyRankResponse,
+  PixivRankingJsonResponse,
   DatabasePic,
   PixivDailyRankItem,
   PixivHeaders
@@ -255,7 +256,7 @@ export class PixivCrawler {
   }
 
   /**
-   * 获取排行榜数据
+   * 获取排行榜数据 (使用 JSON API)
    * @param mode 排行类型
    * @returns 排行榜响应或null
    */
@@ -264,37 +265,26 @@ export class PixivCrawler {
       const sleepTime = getRandomDelay(CRAWLER_CONFIG.REQUEST_DELAY_MIN, CRAWLER_CONFIG.REQUEST_DELAY_MAX);
       await sleep(sleepTime);
 
+      // 使用 JSON API，p=1 已包含50条数据
       const response = await this.httpClient.get(
-        `https://www.pixiv.net/ranking.php?mode=${mode}&content=illust`,
-        { responseType: 'text' }
+        `https://www.pixiv.net/ranking.php?mode=${mode}&content=illust&format=json&p=1`
       );
 
-      const html: string = typeof response.data === 'string' ? response.data : String(response.data);
-      const pidRegex = /<a\s+[^>]*href=["']\/artworks\/(\d+)["'][^>]*>/g;
-      const pidToFirstRank = new Map<string, number>();
-      let match: RegExpExecArray | null;
-      let index = 0;
+      const jsonData: PixivRankingJsonResponse = response.data;
 
-      while ((match = pidRegex.exec(html)) !== null) {
-        const pid = match[1];
-        if (!pidToFirstRank.has(pid)) {
-          pidToFirstRank.set(pid, index + 1);
-        }
-        index += 1;
-        if (pidToFirstRank.size >= 200) break;
-      }
-
-      if (pidToFirstRank.size === 0) {
-        this.logManager.addLog(`解析${mode}榜单页面失败，未发现任何PID`, 'warning', this.taskId);
+      if (!jsonData.contents || jsonData.contents.length === 0) {
+        this.logManager.addLog(`${mode}榜单返回数据为空`, 'warning', this.taskId);
         return { body: { rankings: [] }, error: false } as PixivDailyRankResponse;
       }
 
       const now = formatDateTime(new Date());
-      const rankings: PixivDailyRankItem[] = Array.from(pidToFirstRank.entries())
-        .sort((a, b) => a[1] - b[1])
-        .map(([pid, rank]) => ({ pid, rank, crawl_time: now }));
-
-      this.logManager.addLog(`获取${mode}榜单成功，解析到 ${rankings.length} 个PID`, 'info', this.taskId);
+      const rankings: PixivDailyRankItem[] = jsonData.contents.map(item => ({
+        pid: String(item.illust_id),
+        rank: item.rank,
+        crawl_time: now
+      }));
+      console.log('rankings:', rankings);
+      this.logManager.addLog(`获取${mode}榜单成功，共 ${rankings.length} 个PID`, 'info', this.taskId);
       return { body: { rankings }, error: false };
     } catch (error) {
       this.logManager.addLog(`获取${mode}榜单异常: ${error instanceof Error ? error.message : String(error)}`, 'error', this.taskId);
