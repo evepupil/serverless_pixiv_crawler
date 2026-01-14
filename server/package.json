@@ -1,0 +1,33 @@
+{
+  "name": "pixiv-crawler-server",
+  "version": "1.0.0",
+  "description": "Pixiv爬虫东京服务器 - 使用Turso数据库和B2存储",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "ts-node src/index.ts",
+    "start": "node dist/index.js",
+    "db:init": "ts-node src/db/init.ts"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.14.0",
+    "@aws-sdk/client-s3": "^3.864.0",
+    "axios": "^1.6.0",
+    "cheerio": "^1.0.0-rc.12",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.8.0",
+    "ts-node": "^10.9.1",
+    "typescript": "^5.2.2"
+  },
+  "keywords": [
+    "pixiv",
+    "crawler",
+    "turso",
+    "libsql",
+    "tokyo-server"
+  ],
+  "author": "",
+  "license": "MIT"
+}
