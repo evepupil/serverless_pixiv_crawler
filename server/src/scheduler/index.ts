@@ -16,6 +16,31 @@ interface TaskConfig {
 }
 
 /**
+ * 从环境变量读取调度器配置
+ */
+function getSchedulerConfig() {
+  // 从环境变量读取，单位为分钟，转换为毫秒
+  const minuteToMs = (minutes: number) => minutes * 60 * 1000;
+
+  return {
+    // 首页推荐间隔（默认10分钟）
+    homeInterval: minuteToMs(parseInt(process.env.SCHEDULER_HOME_INTERVAL || '10')),
+
+    // 插画推荐间隔和数量
+    illustRecommendInterval: minuteToMs(parseInt(process.env.SCHEDULER_ILLUST_RECOMMEND_INTERVAL || '15')),
+    illustRecommendLimit: parseInt(process.env.SCHEDULER_ILLUST_RECOMMEND_LIMIT || '30'),
+
+    // 作者推荐间隔和数量
+    authorRecommendInterval: minuteToMs(parseInt(process.env.SCHEDULER_AUTHOR_RECOMMEND_INTERVAL || '15')),
+    authorRecommendLimit: parseInt(process.env.SCHEDULER_AUTHOR_RECOMMEND_LIMIT || '30'),
+
+    // 详细信息间隔和数量
+    detailInfoInterval: minuteToMs(parseInt(process.env.SCHEDULER_DETAIL_INFO_INTERVAL || '5')),
+    detailInfoLimit: parseInt(process.env.SCHEDULER_DETAIL_INFO_LIMIT || '50')
+  };
+}
+
+/**
  * 任务调度器
  * 功能：定时触发爬取任务
  */
@@ -24,71 +49,101 @@ export class TaskScheduler {
   private logManager: ILogManager;
   private timers: Map<string, NodeJS.Timeout> = new Map();
   private isRunning: boolean = false;
-
-  // 任务配置列表
-  private tasks: TaskConfig[] = [
-    // 排行榜任务 - 每天执行一次
-    {
-      name: '日榜爬取',
-      action: 'daily',
-      method: 'GET',
-      interval: 24 * 60 * 60 * 1000, // 24小时
-      enabled: true
-    },
-    {
-      name: '周榜爬取',
-      action: 'weekly',
-      method: 'GET',
-      interval: 24 * 60 * 60 * 1000, // 24小时（每天更新一次周榜数据）
-      enabled: true
-    },
-    {
-      name: '月榜爬取',
-      action: 'monthly',
-      method: 'GET',
-      interval: 24 * 60 * 60 * 1000, // 24小时
-      enabled: true
-    },
-
-    // 首页推荐任务 - 每3分钟执行一次
-    {
-      name: '首页推荐爬取',
-      action: 'home',
-      method: 'GET',
-      interval: 3 * 60 * 1000, // 3分钟
-      enabled: true
-    },
-
-    // 未完成任务处理 - 每5分钟执行一次
-    {
-      name: '插画推荐任务处理',
-      action: 'crawl-uncompleted',
-      method: 'POST',
-      interval: 5 * 60 * 1000, // 5分钟
-      body: { action: 'crawl-uncompleted', taskType: 'illust_recommend', limit: 50 },
-      enabled: true
-    },
-    {
-      name: '作者推荐任务处理',
-      action: 'crawl-uncompleted',
-      method: 'POST',
-      interval: 5 * 60 * 1000, // 5分钟
-      body: { action: 'crawl-uncompleted', taskType: 'author_recommend', limit: 50 },
-      enabled: true
-    },
-    {
-      name: '详细信息任务处理',
-      action: 'crawl-uncompleted',
-      method: 'POST',
-      interval: 2 * 60 * 1000, // 2分钟
-      body: { action: 'crawl-uncompleted', taskType: 'detail_info', limit: 100 },
-      enabled: true
-    }
-  ];
+  private tasks: TaskConfig[] = [];
 
   constructor(port: number, logManager: ILogManager) {
     this.port = port;
     this.logManager = logManager;
+    this.initTasks();
+  }
+
+  /**
+   * 初始化任务配置（从环境变量读取）
+   */
+  private initTasks(): void {
+    const config = getSchedulerConfig();
+
+    this.tasks = [
+      // 排行榜任务 - 每天执行一次（固定配置）
+      {
+        name: '日榜爬取',
+        action: 'daily',
+        method: 'GET',
+        interval: 24 * 60 * 60 * 1000,
+        enabled: true
+      },
+      {
+        name: '周榜爬取',
+        action: 'weekly',
+        method: 'GET',
+        interval: 24 * 60 * 60 * 1000,
+        enabled: true
+      },
+      {
+        name: '月榜爬取',
+        action: 'monthly',
+        method: 'GET',
+        interval: 24 * 60 * 60 * 1000,
+        enabled: true
+      },
+
+      // 首页推荐任务（从环境变量读取间隔）
+      {
+        name: '首页推荐爬取',
+        action: 'home',
+        method: 'GET',
+        interval: config.homeInterval,
+        enabled: true
+      },
+
+      // 未完成任务处理（从环境变量读取间隔和数量）
+      {
+        name: '插画推荐任务处理',
+        action: 'crawl-uncompleted',
+        method: 'POST',
+        interval: config.illustRecommendInterval,
+        body: {
+          action: 'crawl-uncompleted',
+          taskType: 'illust_recommend',
+          limit: config.illustRecommendLimit
+        },
+        enabled: true
+      },
+      {
+        name: '作者推荐任务处理',
+        action: 'crawl-uncompleted',
+        method: 'POST',
+        interval: config.authorRecommendInterval,
+        body: {
+          action: 'crawl-uncompleted',
+          taskType: 'author_recommend',
+          limit: config.authorRecommendLimit
+        },
+        enabled: true
+      },
+      {
+        name: '详细信息任务处理',
+        action: 'crawl-uncompleted',
+        method: 'POST',
+        interval: config.detailInfoInterval,
+        body: {
+          action: 'crawl-uncompleted',
+          taskType: 'detail_info',
+          limit: config.detailInfoLimit
+        },
+        enabled: true
+      }
+    ];
+
+    // 打印配置信息
+    this.logManager.addLog(
+      `[调度器] 配置已加载: 首页${config.homeInterval/60000}分钟, ` +
+      `插画推荐${config.illustRecommendInterval/60000}分钟/${config.illustRecommendLimit}个, ` +
+      `作者推荐${config.authorRecommendInterval/60000}分钟/${config.authorRecommendLimit}个, ` +
+      `详细信息${config.detailInfoInterval/60000}分钟/${config.detailInfoLimit}个`,
+      'info',
+      'scheduler'
+    );
   }
 
   /**
@@ -126,7 +181,6 @@ export class TaskScheduler {
               );
             }
           } catch (e) {
-            // 非 JSON 响应（如图片代理）也视为成功
             this.logManager.addLog(
               `[调度器] ${task.name} 执行完成`,
               'info',
@@ -146,7 +200,6 @@ export class TaskScheduler {
         reject(error);
       });
 
-      // 设置超时
       req.setTimeout(60000, () => {
         req.destroy();
         this.logManager.addLog(
@@ -157,7 +210,6 @@ export class TaskScheduler {
         reject(new Error('Request timeout'));
       });
 
-      // 发送请求体（POST 请求）
       if (task.method === 'POST' && task.body) {
         req.write(JSON.stringify(task.body));
       }
@@ -180,7 +232,7 @@ export class TaskScheduler {
       );
       await this.sendRequest(task);
     } catch (error) {
-      // 错误已在 sendRequest 中记录，这里忽略
+      // 错误已在 sendRequest 中记录
     }
   }
 
@@ -196,22 +248,18 @@ export class TaskScheduler {
     this.isRunning = true;
     this.logManager.addLog('[调度器] 调度器启动', 'success', 'scheduler');
 
-    // 启动后延迟 10 秒执行首次任务（等待服务器完全就绪）
     const startupDelay = 10 * 1000;
 
-    // 为每个任务设置定时器
     for (const task of this.tasks) {
       if (!task.enabled) {
         this.logManager.addLog(`[调度器] 任务 ${task.name} 已禁用`, 'info', 'scheduler');
         continue;
       }
 
-      // 设置首次执行（延迟启动）
-      const firstRunDelay = startupDelay + Math.random() * 5000; // 加上随机延迟避免同时执行
+      const firstRunDelay = startupDelay + Math.random() * 5000;
       setTimeout(() => {
         this.executeTask(task);
 
-        // 设置周期性执行
         const timer = setInterval(() => {
           this.executeTask(task);
         }, task.interval);
@@ -237,7 +285,6 @@ export class TaskScheduler {
       return;
     }
 
-    // 清除所有定时器
     for (const [name, timer] of this.timers) {
       clearInterval(timer);
       this.logManager.addLog(`[调度器] 停止任务: ${name}`, 'info', 'scheduler');
@@ -308,7 +355,6 @@ export class TaskScheduler {
       'scheduler'
     );
 
-    // 如果调度器正在运行，重新设置该任务的定时器
     if (this.isRunning && this.timers.has(task.name)) {
       const oldTimer = this.timers.get(task.name);
       if (oldTimer) clearInterval(oldTimer);
