@@ -150,10 +150,13 @@ export class PixivProxy {
       for (const ext of extensions) {
         const b2Key = `pixiv/${artistInfo.userId}_${safeArtistName}/${pid}/${size}.${ext}`;
         if (await this.existsInB2(b2Key)) {
-          let b2BaseUrl = process.env.B2_PUBLIC_URL || process.env.B2_ENDPOINT || '';
+          // 优先使用 B2_BUCKET_URL（Worker代理地址），否则使用旧的配置
+          let b2BaseUrl = process.env.B2_BUCKET_URL || process.env.B2_PUBLIC_URL || process.env.B2_ENDPOINT || '';
           if (b2BaseUrl && !b2BaseUrl.startsWith('http')) {
             b2BaseUrl = `https://${b2BaseUrl}`;
           }
+          // 移除末尾斜杠
+          b2BaseUrl = b2BaseUrl.replace(/\/+$/, '');
           const b2Url = `${b2BaseUrl}/${b2Key}`;
           this.logManager.addLog(`B2缓存命中: ${pid}/${size} -> ${b2Url}`, 'success', this.taskId);
           return b2Url;

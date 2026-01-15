@@ -471,14 +471,18 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
             if (result.success) {
               if (result.fromCache && result.b2Url) {
                 // B2缓存命中，重定向
-                res.writeHead(302, { 'Location': result.b2Url });
+                res.writeHead(302, {
+                  'Location': result.b2Url,
+                  'Access-Control-Allow-Origin': '*'
+                });
                 res.end();
               } else if (result.imageBuffer) {
                 // 从Pixiv获取，直接返回图片
                 res.writeHead(200, {
                   'Content-Type': result.contentType || 'image/jpeg',
                   'Content-Length': result.imageBuffer.length,
-                  'Cache-Control': 'public, max-age=86400'
+                  'Cache-Control': 'public, max-age=86400',
+                  'Access-Control-Allow-Origin': '*'
                 });
                 res.end(result.imageBuffer);
 

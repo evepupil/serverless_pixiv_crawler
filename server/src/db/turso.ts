@@ -198,7 +198,7 @@ export class TursoService {
   /**
    * 更新 Pic 下载信息
    * @param pid 图片ID
-   * @param path 存储路径
+   * @param path 存储路径（不带域名前缀）
    * @param imgUrl 图片URL
    * @param fileSize 文件大小（可选）
    */
@@ -206,20 +206,49 @@ export class TursoService {
     const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
 
     try {
+      // 先查询当前的 image_path，支持多尺寸存储（JSON数组格式）
+      const existing = await this.client.execute({
+        sql: 'SELECT image_path FROM pic WHERE pid = ?',
+        args: [pid]
+      });
+
+      let newImagePath: string;
+      if (existing.rows.length > 0 && existing.rows[0].image_path) {
+        const currentPath = existing.rows[0].image_path as string;
+        try {
+          // 尝试解析为 JSON 数组
+          const paths: string[] = JSON.parse(currentPath);
+          if (!paths.includes(path)) {
+            paths.push(path);
+          }
+          newImagePath = JSON.stringify(paths);
+        } catch {
+          // 旧格式（单个路径），转换为数组格式
+          if (currentPath === path) {
+            newImagePath = JSON.stringify([currentPath]);
+          } else {
+            newImagePath = JSON.stringify([currentPath, path]);
+          }
+        }
+      } else {
+        // 新记录，直接创建数组
+        newImagePath = JSON.stringify([path]);
+      }
+
       await this.client.execute({
         sql: `
           UPDATE pic SET
             image_path = ?,
-            image_url = ?,
-            download_time = ?,
+            image_url = COALESCE(?, image_url),
+            upload_time = ?,
             size = COALESCE(?, size),
             updated_at = ?
           WHERE pid = ?
         `,
-        args: [path, imgUrl, now, fileSize || null, now, pid]
+        args: [newImagePath, imgUrl || null, now, fileSize || null, now, pid]
       });
 
-      console.log('更新 Pic 下载信息完成:', { pid });
+      console.log('更新 Pic 下载信息完成:', { pid, image_path: newImagePath });
     } catch (error) {
       console.error('更新 Pic 下载信息失败:', error);
       throw error;

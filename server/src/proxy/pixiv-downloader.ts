@@ -130,7 +130,10 @@ export class PixivDownloader {
       // 6. 检查是否已存在
       if (await this.existsInB2(b2Key)) {
         this.logManager.addLog(`B2中已存在: ${b2Key}`, 'info', this.taskId);
-        const b2Url = `${process.env.B2_PUBLIC_URL || process.env.B2_ENDPOINT}/${b2Key}`;
+        // 优先使用 B2_BUCKET_URL（Worker代理地址）
+        let b2BaseUrl = process.env.B2_BUCKET_URL || process.env.B2_PUBLIC_URL || process.env.B2_ENDPOINT || '';
+        b2BaseUrl = b2BaseUrl.replace(/\/+$/, '');
+        const b2Url = `${b2BaseUrl}/${b2Key}`;
 
         // 更新数据库
         await this.updateDatabase(pid, b2Key, imageUrl, proxyResult.imageBuffer.length);
@@ -158,7 +161,10 @@ export class PixivDownloader {
       // 8. 更新数据库
       await this.updateDatabase(pid, b2Key, imageUrl, proxyResult.imageBuffer.length);
 
-      const b2Url = `${process.env.B2_PUBLIC_URL || process.env.B2_ENDPOINT}/${b2Key}`;
+      // 优先使用 B2_BUCKET_URL（Worker代理地址）
+      let b2BaseUrl = process.env.B2_BUCKET_URL || process.env.B2_PUBLIC_URL || process.env.B2_ENDPOINT || '';
+      b2BaseUrl = b2BaseUrl.replace(/\/+$/, '');
+      const b2Url = `${b2BaseUrl}/${b2Key}`;
 
       this.logManager.addLog(`归档完成: ${pid} -> ${b2Key}`, 'success', this.taskId);
 
