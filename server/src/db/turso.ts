@@ -1,5 +1,6 @@
-import { createClient, Client, ResultSet } from '@libsql/client';
+import { type Client } from '@libsql/client';
 import { DatabasePic, PicTask, PixivDailyRankItem } from '../types';
+import { createLibsqlClient, getSharedLibsqlClient } from './client';
 
 /**
  * TursoService - 基于 @libsql/client 的数据库服务类
@@ -25,20 +26,14 @@ export class TursoService {
       throw new Error('缺少 Turso 环境变量: TURSO_DATABASE_URL 和 TURSO_AUTH_TOKEN 是必需的');
     }
 
-    // 创建客户端配置
-    const clientConfig: any = {
-      url: dbUrl,
-      authToken: token
-    };
+    // Use shared client by default to keep one connection pool in process.
+    this.client = url || authToken || syncUrl
+      ? createLibsqlClient({ url: dbUrl, authToken: token, syncUrl: localSyncUrl })
+      : getSharedLibsqlClient();
 
-    // 如果配置了本地同步 URL，启用嵌入式副本 (Local Read Replica)
-    // 这将在本地维护一个 SQLite 副本，查询延迟可降至微秒级
     if (localSyncUrl) {
-      clientConfig.syncUrl = localSyncUrl;
       console.log('Turso 本地副本模式已启用，同步URL:', localSyncUrl);
     }
-
-    this.client = createClient(clientConfig);
 
     console.log('Turso 客户端初始化完成:', {
       url: dbUrl.substring(0, 30) + '...',

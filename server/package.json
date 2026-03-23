@@ -7,17 +7,23 @@
     "build": "tsc",
     "dev": "ts-node src/index.ts",
     "start": "node dist/index.js",
-    "db:init": "ts-node src/db/init.ts"
+    "db:init": "npm run db:push",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
-    "@libsql/client": "^0.14.0",
     "@aws-sdk/client-s3": "^3.864.0",
+    "@libsql/client": "^0.14.0",
     "axios": "^1.6.0",
     "cheerio": "^1.0.0-rc.12",
-    "dotenv": "^16.3.1"
+    "dotenv": "^16.3.1",
+    "drizzle-orm": "^0.45.1"
   },
   "devDependencies": {
     "@types/node": "^20.8.0",
+    "drizzle-kit": "^0.31.10",
     "ts-node": "^10.9.1",
     "typescript": "^5.2.2"
   },
