@@ -719,6 +719,52 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
           break;
         }
 
+        case 'auto-topn-preview': {
+          const defaultLimit = parseInt(process.env.AUTO_PREVIEW_DEFAULT_LIMIT || '120');
+          const defaultMinPopularity = parseFloat(process.env.AUTO_PREVIEW_MIN_POPULARITY || '0');
+          const defaultSize = process.env.AUTO_PREVIEW_SIZE || 'regular';
+
+          const requestedLimit = parseInt(String(body.limit ?? defaultLimit));
+          const requestedMinPopularity = parseFloat(String(body.minPopularity ?? defaultMinPopularity));
+          const size = String(body.size || defaultSize);
+          const dryRun = body.dryRun === true || body.dryRun === 'true' || body.dryRun === 1 || body.dryRun === '1';
+
+          const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(requestedLimit, 500)) : defaultLimit;
+          const minPopularity = Number.isFinite(requestedMinPopularity) ? requestedMinPopularity : defaultMinPopularity;
+
+          const taskId = `auto_topn_preview_${Date.now()}`;
+          const candidatePids = await db.getTopPreviewCandidatePids(limit, minPopularity);
+
+          sendJson(res, 200, {
+            success: true,
+            taskId,
+            dryRun,
+            size,
+            limit,
+            minPopularity,
+            candidateCount: candidatePids.length,
+            candidatePreview: candidatePids.slice(0, 20),
+            timestamp: new Date().toISOString()
+          });
+
+          if (dryRun || candidatePids.length === 0) {
+            break;
+          }
+
+          (async () => {
+            try {
+              const headersList = getPixivHeaders();
+              const downloader = new PixivDownloader(headersList[0], logManager, taskId, db);
+              const results = await downloader.batchDownloadAndArchive(candidatePids, size);
+              const successCount = results.filter(r => r.success).length;
+              console.log(`[${taskId}] Auto preview archive done: ${successCount}/${candidatePids.length}`);
+            } catch (error) {
+              console.error(`[${taskId}] Auto preview archive failed:`, error);
+            }
+          })();
+          break;
+        }
+
         case 'batch-download': {
           // 批量下载图片到B2
           const pids = body.pids as string[];

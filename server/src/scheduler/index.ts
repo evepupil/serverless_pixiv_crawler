@@ -21,6 +21,11 @@ interface TaskConfig {
 function getSchedulerConfig() {
   // 从环境变量读取，单位为分钟，转换为毫秒
   const minuteToMs = (minutes: number) => minutes * 60 * 1000;
+  const parseBool = (value: string | undefined, defaultValue: boolean): boolean => {
+    if (value === undefined) return defaultValue;
+    const normalized = value.trim().toLowerCase();
+    return ['1', 'true', 'yes', 'on'].includes(normalized);
+  };
 
   return {
     // 首页推荐间隔（默认10分钟）
@@ -36,7 +41,14 @@ function getSchedulerConfig() {
 
     // 详细信息间隔和数量
     detailInfoInterval: minuteToMs(parseInt(process.env.SCHEDULER_DETAIL_INFO_INTERVAL || '5')),
-    detailInfoLimit: parseInt(process.env.SCHEDULER_DETAIL_INFO_LIMIT || '50')
+    detailInfoLimit: parseInt(process.env.SCHEDULER_DETAIL_INFO_LIMIT || '50'),
+
+    // TopN preview download
+    autoPreviewInterval: minuteToMs(parseInt(process.env.SCHEDULER_AUTO_PREVIEW_INTERVAL || '60')),
+    autoPreviewLimit: parseInt(process.env.SCHEDULER_AUTO_PREVIEW_LIMIT || process.env.AUTO_PREVIEW_DEFAULT_LIMIT || '120'),
+    autoPreviewMinPopularity: parseFloat(process.env.SCHEDULER_AUTO_PREVIEW_MIN_POPULARITY || process.env.AUTO_PREVIEW_MIN_POPULARITY || '0'),
+    autoPreviewSize: process.env.SCHEDULER_AUTO_PREVIEW_SIZE || process.env.AUTO_PREVIEW_SIZE || 'regular',
+    autoPreviewEnabled: parseBool(process.env.SCHEDULER_AUTO_PREVIEW_ENABLED, true)
   };
 }
 
@@ -132,6 +144,19 @@ export class TaskScheduler {
           limit: config.detailInfoLimit
         },
         enabled: true
+      },
+      {
+        name: 'Auto TopN Preview Download',
+        action: 'auto-topn-preview',
+        method: 'POST',
+        interval: config.autoPreviewInterval,
+        body: {
+          action: 'auto-topn-preview',
+          limit: config.autoPreviewLimit,
+          minPopularity: config.autoPreviewMinPopularity,
+          size: config.autoPreviewSize
+        },
+        enabled: config.autoPreviewEnabled
       }
     ];
 

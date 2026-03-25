@@ -451,6 +451,45 @@ export class TursoService {
     }
   }
 
+  /**
+   * Select top candidates for preview ingestion.
+   * Rules:
+   * 1. unfit = 0
+   * 2. popularity >= minPopularity
+   * 3. detail info already crawled (if pic_task row exists)
+   * 4. image_path is empty (not archived yet)
+   */
+  async getTopPreviewCandidatePids(limit: number = 120, minPopularity: number = 0): Promise<string[]> {
+    const safeLimit = Math.max(1, Math.min(limit, 500));
+    const safePopularity = Number.isFinite(minPopularity) ? minPopularity : 0;
+
+    try {
+      const result = await this.client.execute({
+        sql: `
+          SELECT p.pid
+          FROM pic p
+          LEFT JOIN pic_task t ON t.pid = p.pid
+          WHERE p.unfit = 0
+            AND COALESCE(p.popularity, 0) >= ?
+            AND (t.detail_info_crawled = 1 OR t.detail_info_crawled IS NULL)
+            AND (
+              p.image_path IS NULL OR
+              TRIM(p.image_path) = '' OR
+              TRIM(p.image_path) = '[]'
+            )
+          ORDER BY COALESCE(p.popularity, 0) DESC, COALESCE(p.view, 0) DESC
+          LIMIT ?
+        `,
+        args: [safePopularity, safeLimit]
+      });
+
+      return result.rows.map(row => row.pid as string);
+    } catch (error) {
+      console.error('获取预览候选 PID 失败:', error);
+      return [];
+    }
+  }
+
   // ========================================
   // pic_task 表操作
   // ========================================
