@@ -25,6 +25,8 @@ export interface DownloadResult {
 }
 
 export class PixivDownloader {
+  private static readonly DOWNLOAD_SIZE_FALLBACK_ORDER = ['original', 'regular', 'small', 'thumb_mini'] as const;
+
   private s3Client: S3Client;
   private bucketName: string;
   private b2BaseUrl: string;
@@ -32,6 +34,7 @@ export class PixivDownloader {
   private turso: TursoService;
   private logManager: ILogManager;
   private taskId: string;
+  private maxOriginalArchiveBytes: number;
 
   constructor(
     headers: PixivHeaders,
@@ -45,6 +48,7 @@ export class PixivDownloader {
     this.proxy = new PixivProxy(headers, logManager, taskId, this.turso);
     this.bucketName = process.env.B2_BUCKET_NAME || '';
     this.b2BaseUrl = getB2BaseUrlFromEnv();
+    this.maxOriginalArchiveBytes = this.resolveMaxOriginalArchiveBytes();
 
     let endpoint = process.env.B2_ENDPOINT || '';
     if (endpoint && !endpoint.startsWith('http://') && !endpoint.startsWith('https://')) {
@@ -60,6 +64,12 @@ export class PixivDownloader {
         secretAccessKey: process.env.B2_APPLICATION_KEY || ''
       }
     });
+  }
+
+  private resolveMaxOriginalArchiveBytes(): number {
+    const rawMb = parseFloat(process.env.ARCHIVE_MAX_ORIGINAL_MB || '10');
+    const safeMb = Number.isFinite(rawMb) && rawMb > 0 ? rawMb : 10;
+    return Math.floor(safeMb * 1024 * 1024);
   }
 
   private async existsInB2(key: string): Promise<boolean> {
@@ -114,58 +124,84 @@ export class PixivDownloader {
     return Array.from(new Set(normalized));
   }
 
-  private async archiveSingleSize(pid: string, size: string): Promise<DownloadResult> {
-    const normalizedSize = normalizeSize(size);
+  private getDownloadFallbackSizes(requestedSize: string): string[] {
+    const normalizedSize = normalizeSize(requestedSize);
+    const startIndex = PixivDownloader.DOWNLOAD_SIZE_FALLBACK_ORDER.indexOf(normalizedSize);
 
-    const proxyResult = await this.proxy.fetchFromPixiv(pid, normalizedSize);
-    if (!proxyResult.success || !proxyResult.imageBuffer) {
-      return {
-        success: false,
-        pid,
-        size: normalizedSize,
-        error: proxyResult.error || 'Fetch from Pixiv failed'
-      };
+    if (startIndex === -1) {
+      return ['original', 'regular', 'small', 'thumb_mini'];
     }
 
-    const imageUrl = proxyResult.imageUrl || '';
-    const extension = extractFileExtension(imageUrl, 'jpg');
-    const b2Key = buildPixivB2Key(pid, normalizedSize, extension);
+    return [...PixivDownloader.DOWNLOAD_SIZE_FALLBACK_ORDER.slice(startIndex)];
+  }
 
-    if (await this.existsInB2(b2Key)) {
-      await this.updateDatabase(pid, b2Key, imageUrl, proxyResult.imageBuffer.length);
+  private async archiveSingleSize(pid: string, size: string): Promise<DownloadResult> {
+    const requestedSize = normalizeSize(size);
+    const candidateSizes = this.getDownloadFallbackSizes(requestedSize);
+    const errors: string[] = [];
+
+    for (const candidateSize of candidateSizes) {
+      const proxyResult = await this.proxy.fetchFromPixivExactSize(pid, candidateSize);
+      if (!proxyResult.success || !proxyResult.imageBuffer) {
+        errors.push(`${candidateSize}:${proxyResult.error || 'Fetch from Pixiv failed'}`);
+        continue;
+      }
+
+      const fileSize = proxyResult.imageBuffer.length;
+      if (requestedSize === 'original' && fileSize > this.maxOriginalArchiveBytes) {
+        const limitMb = (this.maxOriginalArchiveBytes / 1024 / 1024).toFixed(2);
+        this.logManager.addLog(
+          `Archive downgrade pid=${pid}: ${candidateSize} is ${(fileSize / 1024 / 1024).toFixed(2)}MB > ${limitMb}MB`,
+          'warning',
+          this.taskId
+        );
+        errors.push(`${candidateSize}:exceeds_${limitMb}MB`);
+        continue;
+      }
+
+      const imageUrl = proxyResult.imageUrl || '';
+      const extension = extractFileExtension(imageUrl, 'jpg');
+      const b2Key = buildPixivB2Key(pid, candidateSize, extension);
+
+      if (await this.existsInB2(b2Key)) {
+        await this.updateDatabase(pid, b2Key, imageUrl, fileSize);
+        return {
+          success: true,
+          pid,
+          size: candidateSize,
+          b2Path: b2Key,
+          b2Url: buildB2PublicUrl(this.b2BaseUrl, b2Key),
+          fileSize
+        };
+      }
+
+      const uploaded = await this.uploadToB2(
+        proxyResult.imageBuffer,
+        b2Key,
+        proxyResult.contentType || 'image/jpeg'
+      );
+
+      if (!uploaded) {
+        errors.push(`${candidateSize}:Upload to B2 failed`);
+        continue;
+      }
+
+      await this.updateDatabase(pid, b2Key, imageUrl, fileSize);
       return {
         success: true,
         pid,
-        size: normalizedSize,
+        size: candidateSize,
         b2Path: b2Key,
         b2Url: buildB2PublicUrl(this.b2BaseUrl, b2Key),
-        fileSize: proxyResult.imageBuffer.length
+        fileSize
       };
     }
 
-    const uploaded = await this.uploadToB2(
-      proxyResult.imageBuffer,
-      b2Key,
-      proxyResult.contentType || 'image/jpeg'
-    );
-
-    if (!uploaded) {
-      return {
-        success: false,
-        pid,
-        size: normalizedSize,
-        error: 'Upload to B2 failed'
-      };
-    }
-
-    await this.updateDatabase(pid, b2Key, imageUrl, proxyResult.imageBuffer.length);
     return {
-      success: true,
+      success: false,
       pid,
-      size: normalizedSize,
-      b2Path: b2Key,
-      b2Url: buildB2PublicUrl(this.b2BaseUrl, b2Key),
-      fileSize: proxyResult.imageBuffer.length
+      size: requestedSize,
+      error: errors.length > 0 ? errors.join(' | ') : 'No downloadable size available'
     };
   }
 
@@ -230,4 +266,3 @@ export class PixivDownloader {
     return results;
   }
 }
-

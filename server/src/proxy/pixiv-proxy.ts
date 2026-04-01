@@ -212,6 +212,32 @@ export class PixivProxy {
     return { success: false, error: 'All available sizes failed to fetch from Pixiv' };
   }
 
+  async fetchFromPixivExactSize(pid: string, targetSize: string): Promise<ProxyResult> {
+    const pagesResponse = await this.getIllustPages(pid);
+    if (!pagesResponse || pagesResponse.body.length === 0) {
+      return { success: false, error: 'No page data found from Pixiv' };
+    }
+
+    const size = normalizeSize(targetSize);
+    const urls = pagesResponse.body[0].urls;
+    const imageUrl = urls[size as keyof typeof urls];
+
+    if (!imageUrl) {
+      return { success: false, error: `Pixiv url missing for size=${size}` };
+    }
+
+    this.logManager.addLog(`Fetch exact Pixiv url size=${size}`, 'info', this.taskId);
+    const result = await this.downloadImage(imageUrl, size);
+    if (!result.success) {
+      return result;
+    }
+
+    return {
+      ...result,
+      imageUrl
+    };
+  }
+
   private async downloadImage(imageUrl: string, size: string): Promise<ProxyResult> {
     try {
       const response: AxiosResponse<Buffer> = await this.httpClient.get(imageUrl, {
@@ -264,4 +290,3 @@ export class PixivProxy {
     return contentTypeMap[extension.toLowerCase()] || 'application/octet-stream';
   }
 }
-
