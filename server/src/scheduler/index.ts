@@ -1,4 +1,5 @@
 import http from 'http';
+import { parseSizeList } from '../proxy/storage-path';
 
 // 日志管理器接口
 interface ILogManager {
@@ -47,7 +48,14 @@ function getSchedulerConfig() {
     autoPreviewInterval: minuteToMs(parseInt(process.env.SCHEDULER_AUTO_PREVIEW_INTERVAL || '60')),
     autoPreviewLimit: parseInt(process.env.SCHEDULER_AUTO_PREVIEW_LIMIT || process.env.AUTO_PREVIEW_DEFAULT_LIMIT || '120'),
     autoPreviewMinPopularity: parseFloat(process.env.SCHEDULER_AUTO_PREVIEW_MIN_POPULARITY || process.env.AUTO_PREVIEW_MIN_POPULARITY || '0'),
-    autoPreviewSize: process.env.SCHEDULER_AUTO_PREVIEW_SIZE || process.env.AUTO_PREVIEW_SIZE || 'regular',
+    autoPreviewSizes: parseSizeList(
+      process.env.SCHEDULER_AUTO_PREVIEW_SIZES ||
+        process.env.AUTO_PREVIEW_SIZES ||
+        process.env.SCHEDULER_AUTO_PREVIEW_SIZE ||
+        process.env.AUTO_PREVIEW_SIZE ||
+        'thumb_mini,small',
+      ['thumb_mini', 'small']
+    ),
     autoPreviewEnabled: parseBool(process.env.SCHEDULER_AUTO_PREVIEW_ENABLED, true)
   };
 }
@@ -154,7 +162,7 @@ export class TaskScheduler {
           action: 'auto-topn-preview',
           limit: config.autoPreviewLimit,
           minPopularity: config.autoPreviewMinPopularity,
-          size: config.autoPreviewSize
+          sizes: config.autoPreviewSizes
         },
         enabled: config.autoPreviewEnabled
       }

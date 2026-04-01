@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import { TursoService } from './db/turso';
 import { PixivCrawler, ConsoleLogManager } from './crawler';
 import { PixivProxy, PixivDownloader } from './proxy';
+import { parseSizeList } from './proxy/storage-path';
 import { TaskScheduler } from './scheduler';
 import { checkEnvironmentVariables, checkB2Config, getPixivHeaders, CRAWLER_CONFIG } from './config';
 
@@ -722,11 +723,16 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
         case 'auto-topn-preview': {
           const defaultLimit = parseInt(process.env.AUTO_PREVIEW_DEFAULT_LIMIT || '120');
           const defaultMinPopularity = parseFloat(process.env.AUTO_PREVIEW_MIN_POPULARITY || '0');
-          const defaultSize = process.env.AUTO_PREVIEW_SIZE || 'regular';
+          const defaultSizes = parseSizeList(
+            process.env.AUTO_PREVIEW_SIZES ||
+            process.env.AUTO_PREVIEW_SIZE ||
+            'thumb_mini,small',
+            ['thumb_mini', 'small']
+          );
 
           const requestedLimit = parseInt(String(body.limit ?? defaultLimit));
           const requestedMinPopularity = parseFloat(String(body.minPopularity ?? defaultMinPopularity));
-          const size = String(body.size || defaultSize);
+          const sizes = parseSizeList(body.sizes ?? body.size, defaultSizes);
           const dryRun = body.dryRun === true || body.dryRun === 'true' || body.dryRun === 1 || body.dryRun === '1';
 
           const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(requestedLimit, 500)) : defaultLimit;
@@ -739,7 +745,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
             success: true,
             taskId,
             dryRun,
-            size,
+            sizes,
             limit,
             minPopularity,
             candidateCount: candidatePids.length,
@@ -755,7 +761,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
             try {
               const headersList = getPixivHeaders();
               const downloader = new PixivDownloader(headersList[0], logManager, taskId, db);
-              const results = await downloader.batchDownloadAndArchive(candidatePids, size);
+              const results = await downloader.batchDownloadAndArchiveMultiSizes(candidatePids, sizes);
               const successCount = results.filter(r => r.success).length;
               console.log(`[${taskId}] Auto preview archive done: ${successCount}/${candidatePids.length}`);
             } catch (error) {
@@ -768,7 +774,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
         case 'batch-download': {
           // 批量下载图片到B2
           const pids = body.pids as string[];
-          const size = body.size || 'original';
+          const sizes = parseSizeList(body.sizes ?? body.size, ['original']);
 
           if (!pids || !Array.isArray(pids) || pids.length === 0) {
             sendJson(res, 400, { error: '缺少 pids 数组参数' });
@@ -785,13 +791,14 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
             message: '批量下载任务已启动',
             taskId,
             count: pids.length,
+            sizes,
             timestamp: new Date().toISOString()
           });
 
           // 异步执行下载
           (async () => {
             try {
-              const results = await downloader.batchDownloadAndArchive(pids, size);
+              const results = await downloader.batchDownloadAndArchiveMultiSizes(pids, sizes);
               const successCount = results.filter(r => r.success).length;
               console.log(`[${taskId}] 批量下载完成: ${successCount}/${pids.length}`);
             } catch (error) {

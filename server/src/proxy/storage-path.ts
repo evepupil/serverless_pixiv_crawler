@@ -13,6 +13,26 @@ export function normalizeSize(size?: string): PixivImageSize {
   return 'original';
 }
 
+export function parseSizeList(
+  input?: string | string[] | null,
+  fallback: PixivImageSize[] = ['original']
+): PixivImageSize[] {
+  const rawValues = Array.isArray(input)
+    ? input
+    : typeof input === 'string'
+      ? input.split(',')
+      : [];
+
+  const normalized = rawValues
+    .map((item) => String(item).trim().toLowerCase())
+    .filter((item): item is PixivImageSize =>
+      (SUPPORTED_SIZES as readonly string[]).includes(item)
+    );
+
+  const unique = Array.from(new Set(normalized));
+  return unique.length > 0 ? unique : [...fallback];
+}
+
 export function getB2BaseUrlFromEnv(): string {
   const rawBaseUrl =
     process.env.B2_BUCKET_URL ||
@@ -95,4 +115,3 @@ export function matchPathsBySize(paths: string[], targetSize: string): string[] 
     return match?.[1] === normalizedSize;
   });
 }
-
