@@ -130,7 +130,7 @@ export class TaskScheduler {
         enabled: true
       },
       {
-        name: '作者推荐任务处理',
+        name: 'Author recommend processing',
         action: 'crawl-uncompleted',
         method: 'POST',
         interval: config.authorRecommendInterval,
@@ -279,7 +279,7 @@ export class TaskScheduler {
     }
 
     this.isRunning = true;
-    this.logManager.addLog('[调度器] 调度器启动', 'success', 'scheduler');
+    this.logManager.addLog('[Scheduler] started', 'success', 'scheduler');
 
     const startupDelay = 10 * 1000;
 

@@ -139,6 +139,31 @@ export interface PicTask {
   author_recommend_count?: number;
   detail_info_crawled: boolean;
   detail_info_time?: string;
+  priority?: number;
+  task_source_type?: string;
+  task_source_key?: string;
+  source_recent_at?: string;
+  attempt_count?: number;
+  next_retry_at?: string;
+  last_error?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface DownloadJob {
+  id: number;
+  pid: string;
+  job_type: 'preview' | 'full' | 'backfill';
+  requested_sizes: string[];
+  status: 'pending' | 'running' | 'success' | 'failed';
+  priority?: number;
+  source_type?: string;
+  source_key?: string;
+  max_attempts?: number;
+  attempt_count?: number;
+  last_error?: string;
+  started_at?: string;
+  finished_at?: string;
   created_at?: string;
   updated_at?: string;
 }

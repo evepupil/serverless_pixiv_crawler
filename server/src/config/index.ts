@@ -20,7 +20,7 @@ export const config: Config = {
     "碧蓝档案": [],
     "原创": []
   },
-  blacklist_tag: ["AI 作画", "R-18", "比基尼", "肚脐", "裸下半身", "屁股"],
+  blacklist_tag: ["AI art", "R-18", "bikini", "underboob", "lower body", "hips"],
   img_dirs: "artworks_IMG/img_dirs",
   img_nums: 10
 };
@@ -57,7 +57,7 @@ export function getPixivHeaders(): PixivHeaders[] {
   const cookie = process.env.PIXIV_COOKIE;
 
   if (!cookie || cookie === 'your_pixiv_cookie_here') {
-    throw new Error('PIXIV_COOKIE 环境变量未设置或使用默认值');
+    throw new Error('PIXIV_COOKIE is not configured');
   }
 
   // 基础请求头

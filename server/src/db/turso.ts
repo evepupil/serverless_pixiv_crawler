@@ -1,21 +1,70 @@
 import { type Client } from '@libsql/client';
-import { DatabasePic, PicTask, PixivDailyRankItem } from '../types';
+import { DatabasePic, DownloadJob, PicTask, PixivDailyRankItem } from '../types';
 import { createLibsqlClient, getSharedLibsqlClient } from './client';
 
+type TaskType = 'illust_recommend' | 'author_recommend' | 'detail_info';
+type RankingSourceType = 'ranking_daily' | 'ranking_weekly' | 'ranking_monthly';
+export type PicTaskSourceType = 'unknown' | 'home' | 'illust_recommend' | 'author_recommend' | 'manual' | RankingSourceType;
+
+export interface PicTaskUpsertOptions {
+  priority?: number;
+  sourceType?: PicTaskSourceType;
+  sourceKey?: string;
+  sourceRecentAt?: string;
+}
+
+export interface RecentPreviewWindowConfig {
+  rankingDailyDays: number;
+  rankingWeeklyDays: number;
+  rankingMonthlyDays: number;
+  homeDays: number;
+  illustRecommendDays: number;
+  authorRecommendDays: number;
+  manualDays: number;
+}
+
+export interface RecentPreviewQuotaConfig {
+  rankingDailyRatio: number;
+  rankingWeeklyRatio: number;
+  homeRatio: number;
+  relatedRatio: number;
+  manualRatio: number;
+}
+
+export interface RecentPreviewCandidate {
+  pid: string;
+  priority: number;
+  sourceType: string;
+  sourceKey?: string;
+  sourceRecentAt?: string;
+  popularity: number;
+  view: number;
+}
+
+export interface DownloadJobInput {
+  pid: string;
+  jobType: 'preview' | 'full' | 'backfill';
+  requestedSizes: string[];
+  priority?: number;
+  sourceType?: string;
+  sourceKey?: string;
+  maxAttempts?: number;
+}
+
 /**
- * TursoService - 基于 @libsql/client 的数据库服务类
+ * TursoService - 鍩轰簬 @libsql/client 鐨勬暟鎹簱鏈嶅姟绫?
  *
- * 相比 Supabase (PostgreSQL)，使用 SQLite 语法，并支持 Turso 的 Local Read Replica
- * 功能，可将查询延迟降至微秒级，极大提升递归爬虫去重检查的速度。
+ * 鐩告瘮 Supabase (PostgreSQL)锛屼娇鐢?SQLite 璇硶锛屽苟鏀寔 Turso 鐨?Local Read Replica
+ * 鍔熻兘锛屽彲灏嗘煡璇㈠欢杩熼檷鑷冲井绉掔骇锛屾瀬澶ф彁鍗囬€掑綊鐖櫕鍘婚噸妫€鏌ョ殑閫熷害銆?
  */
 export class TursoService {
   private client: Client;
 
   /**
-   * TursoService 构造函数
-   * @param url Turso 数据库 URL (例如: libsql://xxx.turso.io)
-   * @param authToken Turso 认证令牌
-   * @param syncUrl 可选的本地同步 URL (用于 Local Read Replica)
+   * TursoService 鏋勯€犲嚱鏁?
+   * @param url Turso 鏁版嵁搴?URL (渚嬪: libsql://xxx.turso.io)
+   * @param authToken Turso 璁よ瘉浠ょ墝
+   * @param syncUrl 鍙€夌殑鏈湴鍚屾 URL (鐢ㄤ簬 Local Read Replica)
    */
   constructor(url?: string, authToken?: string, syncUrl?: string) {
     const dbUrl = url || process.env.TURSO_DATABASE_URL;
@@ -23,7 +72,7 @@ export class TursoService {
     const localSyncUrl = syncUrl || process.env.TURSO_SYNC_URL;
 
     if (!dbUrl || !token) {
-      throw new Error('缺少 Turso 环境变量: TURSO_DATABASE_URL 和 TURSO_AUTH_TOKEN 是必需的');
+      throw new Error('Missing TURSO_DATABASE_URL or TURSO_AUTH_TOKEN');
     }
 
     // Use shared client by default to keep one connection pool in process.
@@ -32,23 +81,23 @@ export class TursoService {
       : getSharedLibsqlClient();
 
     if (localSyncUrl) {
-      console.log('Turso 本地副本模式已启用，同步URL:', localSyncUrl);
+      console.log('Turso 鏈湴鍓湰妯″紡宸插惎鐢紝鍚屾URL:', localSyncUrl);
     }
 
-    console.log('Turso 客户端初始化完成:', {
+    console.log('Turso 瀹㈡埛绔垵濮嬪寲瀹屾垚:', {
       url: dbUrl.substring(0, 30) + '...',
       hasLocalReplica: !!localSyncUrl
     });
   }
 
   // ========================================
-  // Pic 表操作
+  // Pic 琛ㄦ搷浣?
   // ========================================
 
   /**
-   * 创建或更新 Pic 记录 (Upsert)
-   * 使用 SQLite 的 ON CONFLICT(pid) DO UPDATE 语法
-   * @param pic 图片数据
+   * 鍒涘缓鎴栨洿鏂?Pic 璁板綍 (Upsert)
+   * 浣跨敤 SQLite 鐨?ON CONFLICT(pid) DO UPDATE 璇硶
+   * @param pic 鍥剧墖鏁版嵁
    */
   async upsertPic(pic: DatabasePic): Promise<void> {
     const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
@@ -106,25 +155,25 @@ export class TursoService {
         ]
       });
 
-      console.log('Upsert Pic 完成:', { pid: pic.pid });
+      console.log('Upsert Pic 瀹屾垚:', { pid: pic.pid });
     } catch (error) {
-      console.error('Upsert Pic 失败:', error);
+      console.error('Upsert Pic 澶辫触:', error);
       throw error;
     }
   }
 
   /**
-   * 创建 Pic 记录 (兼容旧接口)
-   * @param pic 图片数据
+   * 鍒涘缓 Pic 璁板綍 (鍏煎鏃ф帴鍙?
+   * @param pic 鍥剧墖鏁版嵁
    */
   async createPic(pic: DatabasePic): Promise<void> {
     return this.upsertPic(pic);
   }
 
   /**
-   * 根据 PID 获取 Pic 记录
-   * @param pid 图片ID
-   * @returns DatabasePic 或 null
+   * 鏍规嵁 PID 鑾峰彇 Pic 璁板綍
+   * @param pid 鍥剧墖ID
+   * @returns DatabasePic 鎴?null
    */
   async getPicByPid(pid: string): Promise<DatabasePic | null> {
     try {
@@ -139,16 +188,16 @@ export class TursoService {
 
       return this.rowToDatabasePic(result.rows[0]);
     } catch (error) {
-      console.error('获取 Pic 失败:', error);
+      console.error('鑾峰彇 Pic 澶辫触:', error);
       return null;
     }
   }
 
   /**
-   * 检查 PID 是否已存在（高性能去重检查）
-   * 利用 Local Read Replica 可实现微秒级查询
-   * @param pid 图片ID
-   * @returns 是否存在
+   * 妫€鏌?PID 鏄惁宸插瓨鍦紙楂樻€ц兘鍘婚噸妫€鏌ワ級
+   * 鍒╃敤 Local Read Replica 鍙疄鐜板井绉掔骇鏌ヨ
+   * @param pid 鍥剧墖ID
+   * @returns 鏄惁瀛樺湪
    */
   async existsPid(pid: string): Promise<boolean> {
     try {
@@ -158,21 +207,21 @@ export class TursoService {
       });
       return result.rows.length > 0;
     } catch (error) {
-      console.error('检查 PID 存在性失败:', error);
+      console.error('妫€鏌?PID 瀛樺湪鎬уけ璐?', error);
       return false;
     }
   }
 
   /**
-   * 批量检查 PID 是否已存在（高性能批量去重）
-   * @param pids PID 数组
-   * @returns 已存在的 PID 集合
+   * 鎵归噺妫€鏌?PID 鏄惁宸插瓨鍦紙楂樻€ц兘鎵归噺鍘婚噸锛?
+   * @param pids PID 鏁扮粍
+   * @returns 宸插瓨鍦ㄧ殑 PID 闆嗗悎
    */
   async getExistingPids(pids: string[]): Promise<Set<string>> {
     if (pids.length === 0) return new Set();
 
     try {
-      // SQLite 使用 IN 子句，构建占位符
+      // SQLite 浣跨敤 IN 瀛愬彞锛屾瀯寤哄崰浣嶇
       const placeholders = pids.map(() => '?').join(',');
       const result = await this.client.execute({
         sql: `SELECT pid FROM pic WHERE pid IN (${placeholders})`,
@@ -185,23 +234,23 @@ export class TursoService {
       }
       return existingPids;
     } catch (error) {
-      console.error('批量检查 PID 失败:', error);
+      console.error('鎵归噺妫€鏌?PID 澶辫触:', error);
       return new Set();
     }
   }
 
   /**
-   * 更新 Pic 下载信息
-   * @param pid 图片ID
-   * @param path 存储路径（不带域名前缀）
-   * @param imgUrl 图片URL
-   * @param fileSize 文件大小（可选）
+   * 鏇存柊 Pic 涓嬭浇淇℃伅
+   * @param pid 鍥剧墖ID
+   * @param path 瀛樺偍璺緞锛堜笉甯﹀煙鍚嶅墠缂€锛?
+   * @param imgUrl 鍥剧墖URL
+   * @param fileSize 鏂囦欢澶у皬锛堝彲閫夛級
    */
   async updatePicDownload(pid: string, path: string, imgUrl: string, fileSize?: number): Promise<void> {
     const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
 
     try {
-      // 先查询当前的 image_path，支持多尺寸存储（JSON数组格式）
+      // 鍏堟煡璇㈠綋鍓嶇殑 image_path锛屾敮鎸佸灏哄瀛樺偍锛圝SON鏁扮粍鏍煎紡锛?
       const existing = await this.client.execute({
         sql: 'SELECT image_path FROM pic WHERE pid = ?',
         args: [pid]
@@ -211,14 +260,14 @@ export class TursoService {
       if (existing.rows.length > 0 && existing.rows[0].image_path) {
         const currentPath = existing.rows[0].image_path as string;
         try {
-          // 尝试解析为 JSON 数组
+          // 灏濊瘯瑙ｆ瀽涓?JSON 鏁扮粍
           const paths: string[] = JSON.parse(currentPath);
           if (!paths.includes(path)) {
             paths.push(path);
           }
           newImagePath = JSON.stringify(paths);
         } catch {
-          // 旧格式（单个路径），转换为数组格式
+          // 鏃ф牸寮忥紙鍗曚釜璺緞锛夛紝杞崲涓烘暟缁勬牸寮?
           if (currentPath === path) {
             newImagePath = JSON.stringify([currentPath]);
           } else {
@@ -226,7 +275,7 @@ export class TursoService {
           }
         }
       } else {
-        // 新记录，直接创建数组
+        // 鏂拌褰曪紝鐩存帴鍒涘缓鏁扮粍
         newImagePath = JSON.stringify([path]);
       }
 
@@ -243,22 +292,22 @@ export class TursoService {
         args: [newImagePath, imgUrl || null, now, fileSize || null, now, pid]
       });
 
-      console.log('更新 Pic 下载信息完成:', { pid, image_path: newImagePath });
+      console.log('鏇存柊 Pic 涓嬭浇淇℃伅瀹屾垚:', { pid, image_path: newImagePath });
     } catch (error) {
-      console.error('更新 Pic 下载信息失败:', error);
+      console.error('鏇存柊 Pic 涓嬭浇淇℃伅澶辫触:', error);
       throw error;
     }
   }
 
   /**
-   * 更新 Pic 记录
-   * @param pic 部分图片数据 (必须包含 pid)
+   * 鏇存柊 Pic 璁板綍
+   * @param pic 閮ㄥ垎鍥剧墖鏁版嵁 (蹇呴』鍖呭惈 pid)
    */
   async updatePic(pic: Partial<DatabasePic> & { pid: string }): Promise<void> {
     const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
     const { pid, ...updateData } = pic;
 
-    // 动态构建 SET 子句
+    // 鍔ㄦ€佹瀯寤?SET 瀛愬彞
     const setClauses: string[] = [];
     const args: any[] = [];
 
@@ -269,11 +318,11 @@ export class TursoService {
       }
     }
 
-    // 添加 updated_at
+    // 娣诲姞 updated_at
     setClauses.push('updated_at = ?');
     args.push(now);
 
-    // 添加 WHERE 条件的参数
+    // 娣诲姞 WHERE 鏉′欢鐨勫弬鏁?
     args.push(pid);
 
     try {
@@ -282,16 +331,16 @@ export class TursoService {
         args
       });
 
-      console.log('更新 Pic 完成:', { pid });
+      console.log('鏇存柊 Pic 瀹屾垚:', { pid });
     } catch (error) {
-      console.error('更新 Pic 失败:', error);
+      console.error('鏇存柊 Pic 澶辫触:', error);
       throw error;
     }
   }
 
   /**
-   * 最小化批量插入/更新 Pic (仅 pid)
-   * @param pids PID 数组
+   * 鏈€灏忓寲鎵归噺鎻掑叆/鏇存柊 Pic (浠?pid)
+   * @param pids PID 鏁扮粍
    */
   async upsertMinimalPics(pids: string[]): Promise<void> {
     const uniquePids = Array.from(new Set(pids));
@@ -300,7 +349,7 @@ export class TursoService {
     const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
 
     try {
-      // 使用事务批量插入
+      // 浣跨敤浜嬪姟鎵归噺鎻掑叆
       const statements = uniquePids.map(pid => ({
         sql: `
           INSERT INTO pic (pid, tag, good, star, view, image_path, image_url, popularity, created_at, updated_at)
@@ -312,34 +361,34 @@ export class TursoService {
 
       await this.client.batch(statements);
 
-      console.log('批量 Upsert 最小 Pic 完成:', { count: uniquePids.length });
+      console.log('鎵归噺 Upsert 鏈€灏?Pic 瀹屾垚:', { count: uniquePids.length });
     } catch (error) {
-      console.error('批量 Upsert 最小 Pic 失败:', error);
+      console.error('鎵归噺 Upsert 鏈€灏?Pic 澶辫触:', error);
       throw error;
     }
   }
 
   // ========================================
-  // 统计方法
+  // 缁熻鏂规硶
   // ========================================
 
   /**
-   * 获取总图片数量
-   * @returns 总数量
+   * 鑾峰彇鎬诲浘鐗囨暟閲?
+   * @returns 鎬绘暟閲?
    */
   async getTotalPicsCount(): Promise<number> {
     try {
       const result = await this.client.execute('SELECT COUNT(*) as count FROM pic');
       return Number(result.rows[0].count) || 0;
     } catch (error) {
-      console.error('获取总图片数量失败:', error);
+      console.error('鑾峰彇鎬诲浘鐗囨暟閲忓け璐?', error);
       return 0;
     }
   }
 
   /**
-   * 获取已下载图片数量
-   * @returns 已下载数量
+   * 鑾峰彇宸蹭笅杞藉浘鐗囨暟閲?
+   * @returns 宸蹭笅杞芥暟閲?
    */
   async getDownloadedPicsCount(): Promise<number> {
     try {
@@ -348,14 +397,14 @@ export class TursoService {
       );
       return Number(result.rows[0].count) || 0;
     } catch (error) {
-      console.error('获取已下载图片数量失败:', error);
+      console.error('鑾峰彇宸蹭笅杞藉浘鐗囨暟閲忓け璐?', error);
       return 0;
     }
   }
 
   /**
-   * 获取平均热度
-   * @returns 平均热度值
+   * 鑾峰彇骞冲潎鐑害
+   * @returns 骞冲潎鐑害鍊?
    */
   async getAveragePopularity(): Promise<number> {
     try {
@@ -363,14 +412,14 @@ export class TursoService {
       const avgPop = result.rows[0].avg_pop;
       return avgPop ? Number(Number(avgPop).toFixed(4)) : 0;
     } catch (error) {
-      console.error('获取平均热度失败:', error);
+      console.error('鑾峰彇骞冲潎鐑害澶辫触:', error);
       return 0;
     }
   }
 
   /**
-   * 获取统计信息（模拟视图查询）
-   * @returns 统计对象
+   * 鑾峰彇缁熻淇℃伅锛堟ā鎷熻鍥炬煡璇級
+   * @returns 缁熻瀵硅薄
    */
   async getStatsFromView(): Promise<{ totalPics: number; downloadedPics: number; avgPopularity: number }> {
     try {
@@ -389,52 +438,52 @@ export class TursoService {
         avgPopularity: row.avg_popularity ? Number(Number(row.avg_popularity).toFixed(4)) : 0
       };
     } catch (error) {
-      console.error('获取统计信息失败:', error);
+      console.error('鑾峰彇缁熻淇℃伅澶辫触:', error);
       return { totalPics: 0, downloadedPics: 0, avgPopularity: 0 };
     }
   }
 
   /**
-   * 随机获取 PID 列表
-   * @param count 数量
-   * @returns PID 数组
+   * 闅忔満鑾峰彇 PID 鍒楄〃
+   * @param count 鏁伴噺
+   * @returns PID 鏁扮粍
    */
   async getRandomPids(count: number = 10): Promise<string[]> {
     try {
-      // SQLite 使用 RANDOM() 函数
+      // SQLite 浣跨敤 RANDOM() 鍑芥暟
       const result = await this.client.execute({
         sql: 'SELECT pid FROM pic ORDER BY RANDOM() LIMIT ?',
         args: [count]
       });
 
       const pids = result.rows.map(row => row.pid as string);
-      console.log(`随机获取 ${pids.length} 个 PID`);
+      console.log(`闅忔満鑾峰彇 ${pids.length} 涓?PID`);
       return pids;
     } catch (error) {
-      console.error('随机获取 PID 失败:', error);
+      console.error('闅忔満鑾峰彇 PID 澶辫触:', error);
       return [];
     }
   }
 
   /**
-   * 根据标签获取 PID 列表
-   * @param tags 包含的标签
-   * @param unsupportTags 排除的标签
-   * @param limit 数量限制
-   * @returns PID 数组
+   * 鏍规嵁鏍囩鑾峰彇 PID 鍒楄〃
+   * @param tags 鍖呭惈鐨勬爣绛?
+   * @param unsupportTags 鎺掗櫎鐨勬爣绛?
+   * @param limit 鏁伴噺闄愬埗
+   * @returns PID 鏁扮粍
    */
   async getPicsByTags(tags: string[], unsupportTags: string[] = [], limit: number = 6): Promise<string[]> {
     try {
       let sql = 'SELECT pid FROM pic WHERE unfit = 0';
       const args: any[] = [];
 
-      // 添加标签包含条件
+      // 娣诲姞鏍囩鍖呭惈鏉′欢
       for (const tag of tags) {
         sql += ' AND tag LIKE ?';
         args.push(`%${tag}%`);
       }
 
-      // 添加标签排除条件
+      // 娣诲姞鏍囩鎺掗櫎鏉′欢
       for (const tag of unsupportTags) {
         sql += ' AND tag NOT LIKE ?';
         args.push(`%${tag}%`);
@@ -446,7 +495,7 @@ export class TursoService {
       const result = await this.client.execute({ sql, args });
       return result.rows.map(row => row.pid as string);
     } catch (error) {
-      console.error('根据标签获取 PID 失败:', error);
+      console.error('鏍规嵁鏍囩鑾峰彇 PID 澶辫触:', error);
       return [];
     }
   }
@@ -485,64 +534,171 @@ export class TursoService {
 
       return result.rows.map(row => row.pid as string);
     } catch (error) {
-      console.error('获取预览候选 PID 失败:', error);
+      console.error('鑾峰彇棰勮鍊欓€?PID 澶辫触:', error);
       return [];
     }
   }
 
+  private now(): string {
+    return new Date().toISOString().slice(0, 19).replace('T', ' ');
+  }
+
+  private normalizeSourceRecentAt(value?: string): string | null {
+    if (!value) return null;
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      return `${trimmed} 00:00:00`;
+    }
+    return trimmed;
+  }
+
+  private buildPicTaskPriorityValue(priority?: number): number {
+    return Number.isFinite(priority) ? Math.max(0, Math.floor(priority as number)) : 0;
+  }
+
+  private buildRetryAt(delayMinutes: number): string {
+    const delayMs = Math.max(1, delayMinutes) * 60 * 1000;
+    return new Date(Date.now() + delayMs).toISOString().slice(0, 19).replace('T', ' ');
+  }
+
   // ========================================
-  // pic_task 表操作
-  // ========================================
+  // pic_task 琛ㄦ搷浣?  // ========================================
 
   /**
-   * 创建或更新 pic_task 记录
-   * @param pid 图片ID
+   * 鍒涘缓鎴栨洿鏂?pic_task 璁板綍
+   * @param pid 鍥剧墖ID
    */
-  async createOrUpdatePicTask(pid: string): Promise<void> {
-    const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+  async createOrUpdatePicTask(pid: string, options?: PicTaskUpsertOptions): Promise<void> {
+    const now = this.now();
+    const priority = this.buildPicTaskPriorityValue(options?.priority);
+    const sourceType = options?.sourceType || 'unknown';
+    const sourceKey = options?.sourceKey || null;
+    const sourceRecentAt = this.normalizeSourceRecentAt(options?.sourceRecentAt);
 
     try {
-      await this.client.execute({
-        sql: `
-          INSERT INTO pic_task (pid, illust_recommend_crawled, author_recommend_crawled, detail_info_crawled, created_at, updated_at)
-          VALUES (?, 0, 0, 0, ?, ?)
-          ON CONFLICT(pid) DO UPDATE SET updated_at = ?
-        `,
-        args: [pid, now, now, now]
-      });
+      if (!options) {
+        await this.client.execute({
+          sql: `
+            INSERT INTO pic_task (
+              pid, illust_recommend_crawled, author_recommend_crawled, detail_info_crawled, created_at, updated_at
+            )
+            VALUES (?, 0, 0, 0, ?, ?)
+            ON CONFLICT(pid) DO UPDATE SET updated_at = excluded.updated_at
+          `,
+          args: [pid, now, now]
+        });
+      } else {
+        await this.client.execute({
+          sql: `
+            INSERT INTO pic_task (
+              pid, illust_recommend_crawled, author_recommend_crawled, detail_info_crawled,
+              priority, task_source_type, task_source_key, source_recent_at,
+              created_at, updated_at
+            )
+            VALUES (?, 0, 0, 0, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(pid) DO UPDATE SET
+              priority = CASE
+                WHEN excluded.priority > COALESCE(pic_task.priority, 0) THEN excluded.priority
+                ELSE COALESCE(pic_task.priority, 0)
+              END,
+              task_source_type = CASE
+                WHEN excluded.source_recent_at IS NOT NULL
+                  AND (pic_task.source_recent_at IS NULL OR excluded.source_recent_at >= pic_task.source_recent_at)
+                THEN excluded.task_source_type
+                ELSE COALESCE(pic_task.task_source_type, excluded.task_source_type)
+              END,
+              task_source_key = CASE
+                WHEN excluded.source_recent_at IS NOT NULL
+                  AND (pic_task.source_recent_at IS NULL OR excluded.source_recent_at >= pic_task.source_recent_at)
+                THEN excluded.task_source_key
+                ELSE COALESCE(pic_task.task_source_key, excluded.task_source_key)
+              END,
+              source_recent_at = CASE
+                WHEN excluded.source_recent_at IS NOT NULL
+                  AND (pic_task.source_recent_at IS NULL OR excluded.source_recent_at >= pic_task.source_recent_at)
+                THEN excluded.source_recent_at
+                ELSE pic_task.source_recent_at
+              END,
+              updated_at = excluded.updated_at
+          `,
+          args: [pid, priority, sourceType, sourceKey, sourceRecentAt, now, now]
+        });
+      }
 
-      console.log('创建/更新 pic_task 完成:', { pid });
+      console.log('create/update pic_task done:', { pid, priority, sourceType, sourceRecentAt });
     } catch (error) {
-      console.error('创建/更新 pic_task 失败:', error);
+      console.error('create/update pic_task failed:', error);
       throw error;
     }
   }
 
-  /**
-   * 批量创建 pic_task 记录
-   * @param pids PID 数组
-   */
-  async batchCreatePicTasks(pids: string[]): Promise<void> {
+  async batchCreatePicTasks(pids: string[], options?: PicTaskUpsertOptions): Promise<void> {
     if (!pids || pids.length === 0) return;
 
     const uniquePids = Array.from(new Set(pids));
-    const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    const now = this.now();
+    const priority = this.buildPicTaskPriorityValue(options?.priority);
+    const sourceType = options?.sourceType || 'unknown';
+    const sourceKey = options?.sourceKey || null;
+    const sourceRecentAt = this.normalizeSourceRecentAt(options?.sourceRecentAt);
 
     try {
-      const statements = uniquePids.map(pid => ({
-        sql: `
-          INSERT INTO pic_task (pid, illust_recommend_crawled, author_recommend_crawled, detail_info_crawled, created_at, updated_at)
-          VALUES (?, 0, 0, 0, ?, ?)
-          ON CONFLICT(pid) DO NOTHING
-        `,
-        args: [pid, now, now]
-      }));
+      const statements = uniquePids.map(pid => {
+        if (!options) {
+          return {
+            sql: `
+              INSERT INTO pic_task (
+                pid, illust_recommend_crawled, author_recommend_crawled, detail_info_crawled, created_at, updated_at
+              )
+              VALUES (?, 0, 0, 0, ?, ?)
+              ON CONFLICT(pid) DO UPDATE SET updated_at = excluded.updated_at
+            `,
+            args: [pid, now, now]
+          };
+        }
+
+        return {
+          sql: `
+            INSERT INTO pic_task (
+              pid, illust_recommend_crawled, author_recommend_crawled, detail_info_crawled,
+              priority, task_source_type, task_source_key, source_recent_at,
+              created_at, updated_at
+            )
+            VALUES (?, 0, 0, 0, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(pid) DO UPDATE SET
+              priority = CASE
+                WHEN excluded.priority > COALESCE(pic_task.priority, 0) THEN excluded.priority
+                ELSE COALESCE(pic_task.priority, 0)
+              END,
+              task_source_type = CASE
+                WHEN excluded.source_recent_at IS NOT NULL
+                  AND (pic_task.source_recent_at IS NULL OR excluded.source_recent_at >= pic_task.source_recent_at)
+                THEN excluded.task_source_type
+                ELSE COALESCE(pic_task.task_source_type, excluded.task_source_type)
+              END,
+              task_source_key = CASE
+                WHEN excluded.source_recent_at IS NOT NULL
+                  AND (pic_task.source_recent_at IS NULL OR excluded.source_recent_at >= pic_task.source_recent_at)
+                THEN excluded.task_source_key
+                ELSE COALESCE(pic_task.task_source_key, excluded.task_source_key)
+              END,
+              source_recent_at = CASE
+                WHEN excluded.source_recent_at IS NOT NULL
+                  AND (pic_task.source_recent_at IS NULL OR excluded.source_recent_at >= pic_task.source_recent_at)
+                THEN excluded.source_recent_at
+                ELSE pic_task.source_recent_at
+              END,
+              updated_at = excluded.updated_at
+          `,
+          args: [pid, priority, sourceType, sourceKey, sourceRecentAt, now, now]
+        };
+      });
 
       await this.client.batch(statements);
-
-      console.log('批量创建 pic_task 完成:', { count: uniquePids.length });
+      console.log('batch create pic_task done:', { count: uniquePids.length, priority, sourceType });
     } catch (error) {
-      console.error('批量创建 pic_task 失败:', error);
+      console.error('batch create pic_task failed:', error);
       throw error;
     }
   }
@@ -588,13 +744,8 @@ export class TursoService {
     }
   }
 
-  /**
-   * 更新插画推荐爬取状态
-   * @param pid 图片ID
-   * @param count 推荐数量
-   */
   async updateIllustRecommendStatus(pid: string, count: number = 0): Promise<void> {
-    const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    const now = this.now();
 
     try {
       await this.client.execute({
@@ -603,6 +754,8 @@ export class TursoService {
             illust_recommend_crawled = 1,
             illust_recommend_time = ?,
             illust_recommend_count = ?,
+            last_error = NULL,
+            next_retry_at = NULL,
             updated_at = ?
           WHERE pid = ?
         `,
@@ -616,13 +769,8 @@ export class TursoService {
     }
   }
 
-  /**
-   * 更新作者推荐爬取状态
-   * @param pid 图片ID
-   * @param count 推荐数量
-   */
   async updateAuthorRecommendStatus(pid: string, count: number = 0): Promise<void> {
-    const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    const now = this.now();
 
     try {
       await this.client.execute({
@@ -631,6 +779,8 @@ export class TursoService {
             author_recommend_crawled = 1,
             author_recommend_time = ?,
             author_recommend_count = ?,
+            last_error = NULL,
+            next_retry_at = NULL,
             updated_at = ?
           WHERE pid = ?
         `,
@@ -644,12 +794,8 @@ export class TursoService {
     }
   }
 
-  /**
-   * 更新详细信息爬取状态
-   * @param pid 图片ID
-   */
   async updateDetailInfoStatus(pid: string): Promise<void> {
-    const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    const now = this.now();
 
     try {
       await this.client.execute({
@@ -657,41 +803,41 @@ export class TursoService {
           UPDATE pic_task SET
             detail_info_crawled = 1,
             detail_info_time = ?,
+            last_error = NULL,
+            next_retry_at = NULL,
             updated_at = ?
           WHERE pid = ?
         `,
         args: [now, now, pid]
       });
 
-      console.log('更新详细信息状态完成:', { pid });
+      console.log('更新详情信息状态完成:', { pid });
     } catch (error) {
-      console.error('更新详细信息状态失败:', error);
+      console.error('更新详情信息状态失败:', error);
       throw error;
     }
   }
 
-  /**
-   * 获取未完成指定任务的 PID 列表
-   * @param taskType 任务类型
-   * @param limit 数量限制
-   * @returns PID 数组
-   */
-  async getUncompletedTasks(
-    taskType: 'illust_recommend' | 'author_recommend' | 'detail_info',
-    limit: number = 100
-  ): Promise<string[]> {
+  async getUncompletedTasks(taskType: TaskType, limit: number = 100): Promise<string[]> {
     const columnMap = {
       'illust_recommend': 'illust_recommend_crawled',
       'author_recommend': 'author_recommend_crawled',
       'detail_info': 'detail_info_crawled'
-    };
+    } as const;
 
     const column = columnMap[taskType];
 
     try {
       const result = await this.client.execute({
-        sql: `SELECT pid FROM pic_task WHERE ${column} = 0 LIMIT ?`,
-        args: [limit]
+        sql: `
+          SELECT pid
+          FROM pic_task
+          WHERE ${column} = 0
+            AND (next_retry_at IS NULL OR next_retry_at = '' OR next_retry_at <= ?)
+          ORDER BY COALESCE(priority, 0) DESC, COALESCE(source_recent_at, created_at) DESC, created_at DESC
+          LIMIT ?
+        `,
+        args: [this.now(), limit]
       });
 
       return result.rows.map(row => row.pid as string);
@@ -701,23 +847,400 @@ export class TursoService {
     }
   }
 
-  // ========================================
-  // 排行榜操作
-  // ========================================
+  async markTaskAttemptFailed(pid: string, errorMessage: string, delayMinutes: number = 30): Promise<void> {
+    const now = this.now();
+    const nextRetryAt = this.buildRetryAt(delayMinutes);
 
-  /**
-   * 批量写入/更新排行榜数据
-   * @param items 排行榜条目
-   * @param rankDate 排行日期
-   * @param type 排行类型
-   */
+    try {
+      await this.client.execute({
+        sql: `
+          UPDATE pic_task SET
+            attempt_count = COALESCE(attempt_count, 0) + 1,
+            last_error = ?,
+            next_retry_at = ?,
+            updated_at = ?
+          WHERE pid = ?
+        `,
+        args: [errorMessage.slice(0, 1000), nextRetryAt, now, pid]
+      });
+    } catch (error) {
+      console.error('mark task attempt failed error:', error);
+    }
+  }
+
+  async enqueueRankingTasks(
+    items: PixivDailyRankItem[],
+    rankDate: string,
+    type: 'daily' | 'weekly' | 'monthly'
+  ): Promise<void> {
+    if (!items || items.length === 0) return;
+
+    const sourceType: RankingSourceType = `ranking_${type}`;
+    const sourceRecentAt = this.normalizeSourceRecentAt(rankDate) || this.now();
+    const now = this.now();
+
+    const getPriority = (rank: number) => {
+      const safeRank = Number.isFinite(rank) ? Math.max(1, Math.floor(rank)) : 999;
+      const base = type === 'daily' ? 1200 : type === 'weekly' ? 900 : 700;
+      return Math.max(1, base - safeRank);
+    };
+
+    try {
+      const statements = items.map(item => ({
+        sql: `
+          INSERT INTO pic_task (
+            pid, illust_recommend_crawled, author_recommend_crawled, detail_info_crawled,
+            priority, task_source_type, task_source_key, source_recent_at,
+            created_at, updated_at
+          )
+          VALUES (?, 0, 0, 0, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(pid) DO UPDATE SET
+            priority = CASE
+              WHEN excluded.priority > COALESCE(pic_task.priority, 0) THEN excluded.priority
+              ELSE COALESCE(pic_task.priority, 0)
+            END,
+            task_source_type = CASE
+              WHEN pic_task.source_recent_at IS NULL OR excluded.source_recent_at >= pic_task.source_recent_at
+              THEN excluded.task_source_type
+              ELSE pic_task.task_source_type
+            END,
+            task_source_key = CASE
+              WHEN pic_task.source_recent_at IS NULL OR excluded.source_recent_at >= pic_task.source_recent_at
+              THEN excluded.task_source_key
+              ELSE pic_task.task_source_key
+            END,
+            source_recent_at = CASE
+              WHEN pic_task.source_recent_at IS NULL OR excluded.source_recent_at >= pic_task.source_recent_at
+              THEN excluded.source_recent_at
+              ELSE pic_task.source_recent_at
+            END,
+            updated_at = excluded.updated_at
+        `,
+        args: [item.pid, getPriority(item.rank), sourceType, `${type}:${rankDate}`, sourceRecentAt, now, now]
+      }));
+
+      await this.client.batch(statements);
+      console.log('enqueue ranking tasks done:', { type, rankDate, count: items.length });
+    } catch (error) {
+      console.error('enqueue ranking tasks failed:', error);
+      throw error;
+    }
+  }
+
+  async getRecentPreviewCandidates(
+    limit: number,
+    minPopularity: number,
+    windowConfig: RecentPreviewWindowConfig,
+    quotaConfig: RecentPreviewQuotaConfig
+  ): Promise<RecentPreviewCandidate[]> {
+    const safeLimit = Math.max(1, Math.min(limit, 500));
+    const safePopularity = Number.isFinite(minPopularity) ? minPopularity : 0;
+    const quotaBuckets = [
+      {
+        types: ['ranking_daily'],
+        windowDays: windowConfig.rankingDailyDays,
+        ratio: quotaConfig.rankingDailyRatio
+      },
+      {
+        types: ['ranking_weekly'],
+        windowDays: windowConfig.rankingWeeklyDays,
+        ratio: quotaConfig.rankingWeeklyRatio
+      },
+      {
+        types: ['home'],
+        windowDays: windowConfig.homeDays,
+        ratio: quotaConfig.homeRatio
+      },
+      {
+        types: ['illust_recommend', 'author_recommend'],
+        windowDays: Math.max(windowConfig.illustRecommendDays, windowConfig.authorRecommendDays),
+        ratio: quotaConfig.relatedRatio
+      },
+      {
+        types: ['manual'],
+        windowDays: windowConfig.manualDays,
+        ratio: quotaConfig.manualRatio
+      }
+    ];
+
+    const selected = new Map<string, RecentPreviewCandidate>();
+    let remaining = safeLimit;
+
+    for (let index = 0; index < quotaBuckets.length; index += 1) {
+      if (remaining <= 0) break;
+
+      const bucket = quotaBuckets[index];
+      const isLastBucket = index === quotaBuckets.length - 1;
+      const plannedLimit = Math.round(safeLimit * bucket.ratio);
+      const bucketLimit = isLastBucket
+        ? remaining
+        : Math.min(remaining, plannedLimit);
+      if (bucketLimit <= 0) {
+        continue;
+      }
+
+      const rows = await this.queryRecentPreviewCandidatesBySource(
+        bucket.types,
+        bucket.windowDays,
+        bucketLimit,
+        safePopularity,
+        Array.from(selected.keys())
+      );
+
+      for (const row of rows) {
+        if (!selected.has(row.pid)) {
+          selected.set(row.pid, row);
+          remaining -= 1;
+          if (remaining <= 0) break;
+        }
+      }
+    }
+
+    if (remaining > 0) {
+      const fallbackTypes = ['ranking_daily', 'ranking_weekly', 'ranking_monthly', 'home', 'illust_recommend', 'author_recommend', 'manual'];
+      const fallbackWindowDays = Math.max(
+        windowConfig.rankingDailyDays,
+        windowConfig.rankingWeeklyDays,
+        windowConfig.rankingMonthlyDays,
+        windowConfig.homeDays,
+        windowConfig.illustRecommendDays,
+        windowConfig.authorRecommendDays,
+        windowConfig.manualDays
+      );
+
+      const fallbackRows = await this.queryRecentPreviewCandidatesBySource(
+        fallbackTypes,
+        fallbackWindowDays,
+        remaining,
+        safePopularity,
+        Array.from(selected.keys())
+      );
+
+      for (const row of fallbackRows) {
+        if (!selected.has(row.pid)) {
+          selected.set(row.pid, row);
+        }
+      }
+    }
+
+    return Array.from(selected.values()).slice(0, safeLimit);
+  }
+
+  private async queryRecentPreviewCandidatesBySource(
+    sourceTypes: string[],
+    windowDays: number,
+    limit: number,
+    minPopularity: number,
+    excludePids: string[] = []
+  ): Promise<RecentPreviewCandidate[]> {
+    if (!sourceTypes.length || limit <= 0) return [];
+
+    const safeWindowDays = Math.max(1, Math.floor(windowDays));
+    const since = new Date(Date.now() - safeWindowDays * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 19)
+      .replace('T', ' ');
+
+    const sourcePlaceholders = sourceTypes.map(() => '?').join(', ');
+    const args: Array<string | number> = [minPopularity, ...sourceTypes, since];
+    let excludeSql = '';
+    if (excludePids.length > 0) {
+      excludeSql = ` AND p.pid NOT IN (${excludePids.map(() => '?').join(', ')})`;
+      args.push(...excludePids);
+    }
+
+    args.push(limit);
+
+    try {
+      const result = await this.client.execute({
+        sql: `
+          SELECT
+            p.pid,
+            COALESCE(t.priority, 0) AS priority,
+            COALESCE(t.task_source_type, 'unknown') AS source_type,
+            t.task_source_key AS source_key,
+            t.source_recent_at AS source_recent_at,
+            COALESCE(p.popularity, 0) AS popularity,
+            COALESCE(p.view, 0) AS view
+          FROM pic p
+          INNER JOIN pic_task t ON t.pid = p.pid
+          WHERE p.unfit = 0
+            AND COALESCE(p.popularity, 0) >= ?
+            AND t.detail_info_crawled = 1
+            AND COALESCE(t.task_source_type, 'unknown') IN (${sourcePlaceholders})
+            AND COALESCE(t.source_recent_at, t.created_at, p.updated_at, p.created_at) >= ?
+            AND (
+              p.image_path IS NULL OR
+              TRIM(p.image_path) = '' OR
+              TRIM(p.image_path) = '[]'
+            )
+            AND NOT EXISTS (
+              SELECT 1
+              FROM download_job j
+              WHERE j.pid = p.pid
+                AND j.job_type = 'preview'
+                AND j.status IN ('pending', 'running', 'success')
+            )
+            ${excludeSql}
+          ORDER BY
+            COALESCE(t.priority, 0) DESC,
+            COALESCE(p.popularity, 0) DESC,
+            COALESCE(p.view, 0) DESC,
+            COALESCE(t.source_recent_at, t.created_at) DESC
+          LIMIT ?
+        `,
+        args
+      });
+
+      return result.rows.map(row => ({
+        pid: row.pid as string,
+        priority: Number(row.priority) || 0,
+        sourceType: row.source_type as string,
+        sourceKey: row.source_key as string | undefined,
+        sourceRecentAt: row.source_recent_at as string | undefined,
+        popularity: Number(row.popularity) || 0,
+        view: Number(row.view) || 0
+      }));
+    } catch (error) {
+      console.error('query recent preview candidates failed:', error);
+      return [];
+    }
+  }
+
+  async enqueueDownloadJobs(jobs: DownloadJobInput[]): Promise<number> {
+    if (!jobs.length) return 0;
+    const now = this.now();
+    let inserted = 0;
+
+    for (const job of jobs) {
+      const existing = await this.client.execute({
+        sql: `
+          SELECT id
+          FROM download_job
+          WHERE pid = ?
+            AND job_type = ?
+            AND status IN ('pending', 'running', 'success')
+          LIMIT 1
+        `,
+        args: [job.pid, job.jobType]
+      });
+
+      if (existing.rows.length > 0) {
+        continue;
+      }
+
+      await this.client.execute({
+        sql: `
+          INSERT INTO download_job (
+            pid, job_type, requested_sizes, status, priority,
+            source_type, source_key, max_attempts, attempt_count,
+            created_at, updated_at
+          )
+          VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, 0, ?, ?)
+        `,
+        args: [
+          job.pid,
+          job.jobType,
+          JSON.stringify(job.requestedSizes),
+          this.buildPicTaskPriorityValue(job.priority),
+          job.sourceType || null,
+          job.sourceKey || null,
+          Number.isFinite(job.maxAttempts) ? Math.max(1, Math.floor(job.maxAttempts as number)) : 3,
+          now,
+          now
+        ]
+      });
+      inserted += 1;
+    }
+
+    return inserted;
+  }
+
+  async claimPendingDownloadJobs(jobType: 'preview' | 'full' | 'backfill', limit: number): Promise<DownloadJob[]> {
+    const safeLimit = Math.max(1, Math.min(limit, 500));
+    const now = this.now();
+
+    try {
+      const result = await this.client.execute({
+        sql: `
+          SELECT *
+          FROM download_job
+          WHERE job_type = ?
+            AND status = 'pending'
+            AND COALESCE(attempt_count, 0) < COALESCE(max_attempts, 3)
+          ORDER BY COALESCE(priority, 0) DESC, created_at ASC
+          LIMIT ?
+        `,
+        args: [jobType, safeLimit]
+      });
+
+      const jobs = result.rows.map(row => this.rowToDownloadJob(row));
+      if (jobs.length === 0) {
+        return [];
+      }
+
+      await this.client.batch(
+        jobs.map(job => ({
+          sql: `
+            UPDATE download_job
+            SET status = 'running',
+                started_at = COALESCE(started_at, ?),
+                updated_at = ?
+            WHERE id = ?
+          `,
+          args: [now, now, job.id]
+        }))
+      );
+
+      return jobs.map(job => ({
+        ...job,
+        status: 'running',
+        started_at: job.started_at || now,
+        updated_at: now
+      }));
+    } catch (error) {
+      console.error('claim pending download jobs failed:', error);
+      return [];
+    }
+  }
+
+  async markDownloadJobSuccess(id: number): Promise<void> {
+    const now = this.now();
+    await this.client.execute({
+      sql: `
+        UPDATE download_job
+        SET status = 'success',
+            finished_at = ?,
+            updated_at = ?,
+            last_error = NULL
+        WHERE id = ?
+      `,
+      args: [now, now, id]
+    });
+  }
+
+  async markDownloadJobFailed(id: number, errorMessage: string): Promise<void> {
+    const now = this.now();
+    await this.client.execute({
+      sql: `
+        UPDATE download_job
+        SET status = 'failed',
+            attempt_count = COALESCE(attempt_count, 0) + 1,
+            finished_at = ?,
+            updated_at = ?,
+            last_error = ?
+        WHERE id = ?
+      `,
+      args: [now, now, errorMessage.slice(0, 1000), id]
+    });
+  }
   async upsertRankings(
     items: PixivDailyRankItem[],
     rankDate: string,
     type: 'daily' | 'weekly' | 'monthly'
   ): Promise<void> {
     if (!items || items.length === 0) {
-      console.log('排行榜数据为空，跳过写入');
+      console.log('鎺掕姒滄暟鎹负绌猴紝璺宠繃鍐欏叆');
       return;
     }
 
@@ -735,19 +1258,19 @@ export class TursoService {
 
       await this.client.batch(statements);
 
-      console.log('排行榜写入完成:', { type, rankDate, count: items.length });
+      console.log('鎺掕姒滃啓鍏ュ畬鎴?', { type, rankDate, count: items.length });
     } catch (error) {
-      console.error('排行榜写入失败:', error);
+      console.error('鎺掕姒滃啓鍏ュけ璐?', error);
       throw error;
     }
   }
 
   // ========================================
-  // 辅助方法
+  // 杈呭姪鏂规硶
   // ========================================
 
   /**
-   * 将数据库行转换为 DatabasePic 对象
+   * 灏嗘暟鎹簱琛岃浆鎹负 DatabasePic 瀵硅薄
    */
   private rowToDatabasePic(row: any): DatabasePic {
     return {
@@ -772,7 +1295,7 @@ export class TursoService {
   }
 
   /**
-   * 将数据库行转换为 PicTask 对象
+   * 灏嗘暟鎹簱琛岃浆鎹负 PicTask 瀵硅薄
    */
   private rowToPicTask(row: any): PicTask {
     return {
@@ -785,32 +1308,69 @@ export class TursoService {
       author_recommend_count: row.author_recommend_count ? Number(row.author_recommend_count) : undefined,
       detail_info_crawled: Boolean(row.detail_info_crawled),
       detail_info_time: row.detail_info_time as string | undefined,
+      priority: row.priority ? Number(row.priority) : 0,
+      task_source_type: row.task_source_type as string | undefined,
+      task_source_key: row.task_source_key as string | undefined,
+      source_recent_at: row.source_recent_at as string | undefined,
+      attempt_count: row.attempt_count ? Number(row.attempt_count) : 0,
+      next_retry_at: row.next_retry_at as string | undefined,
+      last_error: row.last_error as string | undefined,
+      created_at: row.created_at as string | undefined,
+      updated_at: row.updated_at as string | undefined
+    };
+  }
+
+  private rowToDownloadJob(row: any): DownloadJob {
+    let requestedSizes: string[] = [];
+    try {
+      const parsed = JSON.parse(String(row.requested_sizes || '[]'));
+      if (Array.isArray(parsed)) {
+        requestedSizes = parsed.map(item => String(item)).filter(Boolean);
+      }
+    } catch {
+      requestedSizes = [];
+    }
+
+    return {
+      id: Number(row.id),
+      pid: row.pid as string,
+      job_type: (row.job_type as DownloadJob['job_type']) || 'preview',
+      requested_sizes: requestedSizes,
+      status: (row.status as DownloadJob['status']) || 'pending',
+      priority: row.priority ? Number(row.priority) : 0,
+      source_type: row.source_type as string | undefined,
+      source_key: row.source_key as string | undefined,
+      max_attempts: row.max_attempts ? Number(row.max_attempts) : 3,
+      attempt_count: row.attempt_count ? Number(row.attempt_count) : 0,
+      last_error: row.last_error as string | undefined,
+      started_at: row.started_at as string | undefined,
+      finished_at: row.finished_at as string | undefined,
       created_at: row.created_at as string | undefined,
       updated_at: row.updated_at as string | undefined
     };
   }
 
   /**
-   * 同步本地副本 (用于 Local Read Replica 模式)
-   * 在东京服务器上定期调用以保持数据同步
+   * 鍚屾鏈湴鍓湰 (鐢ㄤ簬 Local Read Replica 妯″紡)
+   * 鍦ㄤ笢浜湇鍔″櫒涓婂畾鏈熻皟鐢ㄤ互淇濇寔鏁版嵁鍚屾
    */
   async sync(): Promise<void> {
     try {
-      // @libsql/client 会自动处理同步，这里只是显式触发
-      console.log('触发 Turso 本地副本同步...');
-      // 执行一个轻量查询来触发同步
+      // @libsql/client 浼氳嚜鍔ㄥ鐞嗗悓姝ワ紝杩欓噷鍙槸鏄惧紡瑙﹀彂
+      console.log('瑙﹀彂 Turso 鏈湴鍓湰鍚屾...');
+      // 鎵ц涓€涓交閲忔煡璇㈡潵瑙﹀彂鍚屾
       await this.client.execute('SELECT 1');
-      console.log('Turso 本地副本同步完成');
+      console.log('Turso sync complete');
     } catch (error) {
-      console.error('Turso 同步失败:', error);
+      console.error('Turso 鍚屾澶辫触:', error);
     }
   }
 
   /**
-   * 关闭数据库连接
+   * 鍏抽棴鏁版嵁搴撹繛鎺?
    */
   async close(): Promise<void> {
     this.client.close();
-    console.log('Turso 连接已关闭');
+    console.log('Turso connection closed');
   }
 }

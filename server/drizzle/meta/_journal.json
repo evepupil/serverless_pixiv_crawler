@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1775324821390,
+      "tag": "0000_slimy_jubilee",
+      "breakpoints": true
+    }
+  ]
+}

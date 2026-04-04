@@ -44,12 +44,21 @@ export const picTask = sqliteTable('pic_task', {
   authorRecommendCount: integer('author_recommend_count').default(0),
   detailInfoCrawled: integer('detail_info_crawled').default(0),
   detailInfoTime: text('detail_info_time'),
+  priority: integer('priority').default(0),
+  taskSourceType: text('task_source_type').default('unknown'),
+  taskSourceKey: text('task_source_key'),
+  sourceRecentAt: text('source_recent_at'),
+  attemptCount: integer('attempt_count').default(0),
+  nextRetryAt: text('next_retry_at'),
+  lastError: text('last_error'),
   createdAt: text('created_at'),
   updatedAt: text('updated_at')
 }, table => [
   index('idx_pic_task_illust_recommend').on(table.illustRecommendCrawled),
   index('idx_pic_task_author_recommend').on(table.authorRecommendCrawled),
-  index('idx_pic_task_detail_info').on(table.detailInfoCrawled)
+  index('idx_pic_task_detail_info').on(table.detailInfoCrawled),
+  index('idx_pic_task_priority').on(table.priority),
+  index('idx_pic_task_source_recent').on(table.taskSourceType, table.sourceRecentAt)
 ]);
 
 export const ranking = sqliteTable('ranking', {
@@ -65,10 +74,33 @@ export const ranking = sqliteTable('ranking', {
   index('idx_ranking_pid').on(table.pid)
 ]);
 
+export const downloadJob = sqliteTable('download_job', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  pid: text('pid').notNull(),
+  jobType: text('job_type').notNull(),
+  requestedSizes: text('requested_sizes').notNull().default('[]'),
+  status: text('status').notNull().default('pending'),
+  priority: integer('priority').default(0),
+  sourceType: text('source_type'),
+  sourceKey: text('source_key'),
+  maxAttempts: integer('max_attempts').default(3),
+  attemptCount: integer('attempt_count').default(0),
+  lastError: text('last_error'),
+  startedAt: text('started_at'),
+  finishedAt: text('finished_at'),
+  createdAt: text('created_at'),
+  updatedAt: text('updated_at')
+}, table => [
+  index('idx_download_job_status').on(table.status, table.jobType, table.priority),
+  index('idx_download_job_pid').on(table.pid),
+  index('idx_download_job_source').on(table.sourceType, table.sourceKey)
+]);
+
 export const schema = {
   pic,
   picTask,
-  ranking
+  ranking,
+  downloadJob
 };
 
 export type PicRow = typeof pic.$inferSelect;
@@ -77,4 +109,5 @@ export type PicTaskRow = typeof picTask.$inferSelect;
 export type NewPicTaskRow = typeof picTask.$inferInsert;
 export type RankingRow = typeof ranking.$inferSelect;
 export type NewRankingRow = typeof ranking.$inferInsert;
-
+export type DownloadJobRow = typeof downloadJob.$inferSelect;
+export type NewDownloadJobRow = typeof downloadJob.$inferInsert;

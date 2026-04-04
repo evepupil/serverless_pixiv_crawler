@@ -226,7 +226,7 @@ export class PixivCrawler {
       // 查找"推荐作品"字符串的位置
       const recommendIndex = html.indexOf('推荐作品');
       if (recommendIndex === -1) {
-        this.logManager.addLog(`未找到"推荐作品"字符串`, 'warning', this.taskId);
+        this.logManager.addLog('Recommend marker not found in home HTML', 'warning', this.taskId);
         return [];
       }
 
@@ -346,7 +346,12 @@ export class PixivCrawler {
 
       // 批量创建 pic_task 记录
       if (resultPids.length > 0) {
-        await this.turso.batchCreatePicTasks(resultPids);
+        await this.turso.batchCreatePicTasks(resultPids, {
+          priority: 560,
+          sourceType: 'illust_recommend',
+          sourceKey: `illust:${pid}`,
+          sourceRecentAt: new Date().toISOString().slice(0, 19).replace('T', ' ')
+        });
       }
 
       // 更新插画推荐状态
@@ -408,7 +413,12 @@ export class PixivCrawler {
       const resultPids = newPids.slice(0, targetNum);
 
       if (resultPids.length > 0) {
-        await this.turso.batchCreatePicTasks(resultPids);
+        await this.turso.batchCreatePicTasks(resultPids, {
+          priority: 520,
+          sourceType: 'author_recommend',
+          sourceKey: `author:${userId}`,
+          sourceRecentAt: new Date().toISOString().slice(0, 19).replace('T', ' ')
+        });
       }
 
       await this.turso.updateAuthorRecommendStatus(pid, resultPids.length);
