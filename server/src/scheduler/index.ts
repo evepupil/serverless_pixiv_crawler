@@ -61,7 +61,11 @@ function getSchedulerConfig() {
         'thumb_mini,small',
       ['thumb_mini', 'small']
     ),
-    autoPreviewEnabled: parseBool(process.env.SCHEDULER_AUTO_PREVIEW_ENABLED, true)
+    autoPreviewEnabled: parseBool(process.env.SCHEDULER_AUTO_PREVIEW_ENABLED, true),
+
+    fullDownloadInterval: minuteToMs(parseInt(process.env.SCHEDULER_FULL_DOWNLOAD_INTERVAL || '5')),
+    fullDownloadLimit: parseInt(process.env.SCHEDULER_FULL_DOWNLOAD_LIMIT || process.env.FULL_DOWNLOAD_DEFAULT_LIMIT || '30'),
+    fullDownloadEnabled: parseBool(process.env.SCHEDULER_FULL_DOWNLOAD_ENABLED, true)
   };
 }
 
@@ -182,6 +186,17 @@ export class TaskScheduler {
           sizes: config.autoPreviewSizes
         },
         enabled: config.autoPreviewEnabled
+      },
+      {
+        name: 'Full Download Queue Worker',
+        action: 'run-full-download',
+        method: 'POST',
+        interval: config.fullDownloadInterval,
+        body: {
+          action: 'run-full-download',
+          limit: config.fullDownloadLimit
+        },
+        enabled: config.fullDownloadEnabled
       }
     ];
 

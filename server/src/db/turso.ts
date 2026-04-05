@@ -1571,7 +1571,7 @@ export class TursoService {
           SELECT *
           FROM download_job
           WHERE job_type = ?
-            AND status = 'pending'
+            AND status IN ('pending', 'failed')
             AND COALESCE(attempt_count, 0) < COALESCE(max_attempts, 3)
           ORDER BY COALESCE(priority, 0) DESC, created_at ASC
           LIMIT ?
@@ -1590,6 +1590,7 @@ export class TursoService {
             UPDATE download_job
             SET status = 'running',
                 started_at = COALESCE(started_at, ?),
+                finished_at = NULL,
                 updated_at = ?
             WHERE id = ?
           `,

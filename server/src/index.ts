@@ -14,6 +14,7 @@ dotenv.config();
 
 type TaskType = 'illust_recommend' | 'author_recommend' | 'detail_info';
 type RankType = 'daily' | 'weekly' | 'monthly';
+type ClaimedDownloadJob = Awaited<ReturnType<TursoService['claimPendingDownloadJobs']>>[number];
 
 let dbService: TursoService | null = null;
 let scheduler: TaskScheduler | null = null;
@@ -113,6 +114,82 @@ function getAutoPreviewQuotaConfig(body: Record<string, any>) {
     artistWatchRatio: Math.max(0, parseFloat(String(body.artistWatchRatio ?? parseFloatEnv('AUTO_PREVIEW_QUOTA_ARTIST_WATCH', 0.08))) || 0.08),
     manualRatio: Math.max(0, parseFloat(String(body.manualRatio ?? parseFloatEnv('AUTO_PREVIEW_QUOTA_MANUAL', 0))) || 0)
   };
+}
+
+function parsePidList(value: unknown): string[] {
+  const raw = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+      ? value.split(',')
+      : [];
+
+  return Array.from(
+    new Set(
+      raw
+        .map(item => String(item).trim())
+        .filter(Boolean)
+    )
+  );
+}
+
+function parseBoundedInt(value: unknown, fallback: number, min: number, max: number): number {
+  const parsed = parseInt(String(value ?? fallback), 10);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.max(min, Math.min(parsed, max));
+}
+
+async function processClaimedDownloadJobs(
+  taskId: string,
+  workerName: string,
+  claimedJobs: ClaimedDownloadJob[],
+  db: TursoService
+): Promise<{ successCount: number; failedCount: number }> {
+  if (claimedJobs.length === 0) {
+    return { successCount: 0, failedCount: 0 };
+  }
+
+  const headersList = getPixivHeaders();
+  const downloader = new PixivDownloader(headersList[0], logManager, taskId, db);
+  let successCount = 0;
+  let failedCount = 0;
+
+  for (const job of claimedJobs) {
+    try {
+      const results = await downloader.downloadAndArchiveMultiSizes(job.pid, job.requested_sizes);
+      const jobSuccess = results.some(result => result.success);
+      if (jobSuccess) {
+        await db.markDownloadJobSuccess(job.id);
+        successCount += 1;
+      } else {
+        const errorMessage = results.map(result => result.error).filter(Boolean).join(' | ') || `${workerName} failed`;
+        await db.markDownloadJobFailed(job.id, errorMessage);
+        failedCount += 1;
+      }
+    } catch (error) {
+      await db.markDownloadJobFailed(job.id, error instanceof Error ? error.message : String(error));
+      failedCount += 1;
+    }
+  }
+
+  console.log(`[${taskId}] ${workerName} done: ${successCount}/${claimedJobs.length}, failed=${failedCount}`);
+  return { successCount, failedCount };
+}
+
+function runDownloadJobWorker(
+  taskId: string,
+  workerName: string,
+  claimedJobs: ClaimedDownloadJob[],
+  db: TursoService
+) {
+  if (claimedJobs.length === 0) {
+    return;
+  }
+
+  void processClaimedDownloadJobs(taskId, workerName, claimedJobs, db).catch(error => {
+    console.error(`[${taskId}] ${workerName} failed:`, error);
+  });
 }
 
 function isTaskType(value: string | undefined): value is TaskType {
@@ -550,6 +627,8 @@ async function handleGetAction(
             '{action:"delete-watch-target",id}',
             '{action:"collect-watch-targets",limitTargets,perTargetLimit,targetIds:[...]}',
             '{action:"auto-topn-preview",limit,minPopularity,sizes,dryRun}',
+            '{action:"enqueue-full-download",pids:[...],sizes:[...],priority,sourceType,sourceKey,runNow}',
+            '{action:"run-full-download",limit}',
             '{action:"batch-download",pids:[...],sizes:[...]}'
           ]
         }
@@ -910,33 +989,90 @@ async function handlePostAction(body: Record<string, any>, res: http.ServerRespo
         return;
       }
 
-      (async () => {
-        try {
-          const headersList = getPixivHeaders();
-          const downloader = new PixivDownloader(headersList[0], logManager, taskId, db);
-          let successCount = 0;
+      runDownloadJobWorker(taskId, 'auto preview jobs', claimedJobs, db);
+      return;
+    }
 
-          for (const job of claimedJobs) {
-            try {
-              const results = await downloader.downloadAndArchiveMultiSizes(job.pid, job.requested_sizes);
-              const jobSuccess = results.some(result => result.success);
-              if (jobSuccess) {
-                await db.markDownloadJobSuccess(job.id);
-                successCount += 1;
-              } else {
-                const errorMessage = results.map(result => result.error).filter(Boolean).join(' | ') || 'Preview archive failed';
-                await db.markDownloadJobFailed(job.id, errorMessage);
-              }
-            } catch (error) {
-              await db.markDownloadJobFailed(job.id, error instanceof Error ? error.message : String(error));
-            }
-          }
+    case 'enqueue-full-download': {
+      const defaultSizes = parseSizeList(
+        process.env.FULL_DOWNLOAD_SIZES || process.env.FULL_DOWNLOAD_SIZE || 'regular,original',
+        ['regular', 'original']
+      );
+      const pids = parsePidList(body.pids ?? body.pid);
+      const sizes = parseSizeList(body.sizes ?? body.size, defaultSizes);
+      const priority = parseBoundedInt(body.priority, 900, 1, 2000);
+      const maxAttempts = parseBoundedInt(body.maxAttempts, 3, 1, 10);
+      const runNow = parseBooleanLike(body.runNow);
+      const runLimit = parseBoundedInt(
+        body.runLimit ?? body.limit,
+        Math.max(pids.length, 1),
+        1,
+        500
+      );
+      const sourceType = typeof body.sourceType === 'string' && body.sourceType.trim()
+        ? body.sourceType.trim()
+        : undefined;
+      const sourceKey = typeof body.sourceKey === 'string' && body.sourceKey.trim()
+        ? body.sourceKey.trim()
+        : undefined;
 
-          console.log(`[${taskId}] auto preview jobs done: ${successCount}/${claimedJobs.length}`);
-        } catch (error) {
-          console.error(`[${taskId}] auto preview failed:`, error);
-        }
-      })();
+      if (pids.length === 0) {
+        sendJson(res, 400, { error: 'Missing pids array' });
+        return;
+      }
+
+      const enqueuedCount = await db.enqueueDownloadJobs(
+        pids.map(pid => ({
+          pid,
+          jobType: 'full' as const,
+          requestedSizes: sizes,
+          priority,
+          sourceType,
+          sourceKey,
+          maxAttempts
+        }))
+      );
+
+      const taskId = `enqueue_full_download_${Date.now()}`;
+      let claimedJobs: ClaimedDownloadJob[] = [];
+      if (runNow && enqueuedCount > 0) {
+        claimedJobs = await db.claimPendingDownloadJobs('full', runLimit);
+      }
+
+      sendJson(res, 200, {
+        success: true,
+        taskId,
+        message: runNow ? 'Full download queued and worker started' : 'Full download queued',
+        count: pids.length,
+        enqueuedCount,
+        skippedCount: pids.length - enqueuedCount,
+        sizes,
+        priority,
+        runNow,
+        claimedCount: claimedJobs.length,
+        timestamp: new Date().toISOString()
+      });
+
+      runDownloadJobWorker(taskId, 'full download jobs', claimedJobs, db);
+      return;
+    }
+
+    case 'run-full-download': {
+      const defaultLimit = parseInt(process.env.FULL_DOWNLOAD_DEFAULT_LIMIT || process.env.SCHEDULER_FULL_DOWNLOAD_LIMIT || '30', 10);
+      const limit = parseBoundedInt(body.limit, defaultLimit, 1, 500);
+      const taskId = `run_full_download_${Date.now()}`;
+      const claimedJobs = await db.claimPendingDownloadJobs('full', limit);
+
+      sendJson(res, 200, {
+        success: true,
+        taskId,
+        limit,
+        claimedCount: claimedJobs.length,
+        message: claimedJobs.length > 0 ? 'Full download worker started' : 'No pending full download jobs',
+        timestamp: new Date().toISOString()
+      });
+
+      runDownloadJobWorker(taskId, 'full download jobs', claimedJobs, db);
       return;
     }
 
