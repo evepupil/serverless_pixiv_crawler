@@ -629,6 +629,7 @@ async function handleGetAction(
             '{action:"auto-topn-preview",limit,minPopularity,sizes,dryRun}',
             '{action:"enqueue-full-download",pids:[...],sizes:[...],priority,sourceType,sourceKey,runNow}',
             '{action:"run-full-download",limit}',
+            '{action:"reconcile-storage",limit,pids:[...],dryRun}',
             '{action:"batch-download",pids:[...],sizes:[...]}'
           ]
         }
@@ -1073,6 +1074,69 @@ async function handlePostAction(body: Record<string, any>, res: http.ServerRespo
       });
 
       runDownloadJobWorker(taskId, 'full download jobs', claimedJobs, db);
+      return;
+    }
+
+    case 'reconcile-storage': {
+      const defaultLimit = parseInt(
+        process.env.RECONCILE_STORAGE_DEFAULT_LIMIT || process.env.SCHEDULER_RECONCILE_STORAGE_LIMIT || '50',
+        10
+      );
+      const limit = parseBoundedInt(body.limit, defaultLimit, 1, 500);
+      const pids = parsePidList(body.pids ?? body.pid);
+      const dryRun = parseBooleanLike(body.dryRun);
+      const taskId = `reconcile_storage_${Date.now()}`;
+      const items = await db.listPicsForStorageReconcile(limit, pids.length > 0 ? pids : undefined);
+
+      sendJson(res, 200, {
+        success: true,
+        taskId,
+        limit,
+        dryRun,
+        count: items.length,
+        sample: items.slice(0, 20).map(item => ({
+          pid: item.pid,
+          downloadStage: item.download_stage,
+          imagePath: item.image_path,
+          imageVariants: item.image_variants
+        })),
+        timestamp: new Date().toISOString()
+      });
+
+      if (dryRun || items.length === 0) {
+        return;
+      }
+
+      (async () => {
+        try {
+          const headersList = getPixivHeaders();
+          const downloader = new PixivDownloader(headersList[0], logManager, taskId, db);
+          let changedCount = 0;
+          let missingPathCount = 0;
+
+          for (const item of items) {
+            const result = await downloader.reconcileArchivedVariants(
+              item.pid,
+              item.image_path,
+              item.image_variants,
+              {
+                previewDownloadedAt: item.preview_downloaded_at,
+                fullDownloadedAt: item.full_downloaded_at
+              }
+            );
+            if (result.changed) {
+              changedCount += 1;
+            }
+            missingPathCount += result.missingPaths.length;
+          }
+
+          console.log(
+            `[${taskId}] reconcile storage done: changed=${changedCount}/${items.length}, missingPaths=${missingPathCount}`
+          );
+        } catch (error) {
+          console.error(`[${taskId}] reconcile storage failed:`, error);
+        }
+      })();
       return;
     }
 

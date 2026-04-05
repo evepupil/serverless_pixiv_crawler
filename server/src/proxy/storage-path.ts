@@ -108,6 +108,25 @@ export function parseImagePathValue(raw: string | null | undefined): string[] {
   return [trimmed];
 }
 
+export function extractSizeFromB2Path(path: string): PixivImageSize | null {
+  const match = path.match(/(?:^|\/)(original|regular|small|thumb_mini)\.[a-zA-Z0-9]+$/);
+  return (match?.[1] as PixivImageSize | undefined) || null;
+}
+
+export function buildImageVariants(paths: string[]): Partial<Record<PixivImageSize, string>> {
+  const variants: Partial<Record<PixivImageSize, string>> = {};
+
+  for (const rawPath of paths) {
+    const path = String(rawPath).trim();
+    if (!path) continue;
+    const size = extractSizeFromB2Path(path);
+    if (!size) continue;
+    variants[size] = path;
+  }
+
+  return variants;
+}
+
 export function matchPathsBySize(paths: string[], targetSize: string): string[] {
   const normalizedSize = normalizeSize(targetSize);
   return paths.filter(path => {

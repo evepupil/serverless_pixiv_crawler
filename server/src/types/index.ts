@@ -110,9 +110,9 @@ export interface IllustData {
 
 export interface DatabasePic {
   pid: string;
-  title?: string;           // 插画标题
-  author_id?: string;       // 作者ID
-  author_name?: string;     // 作者名称
+  title?: string;           // ????
+  author_id?: string;       // ??ID
+  author_name?: string;     // ????
   download_time?: string;
   tag: string;
   good: number;
@@ -125,7 +125,14 @@ export interface DatabasePic {
   wx_url?: string;
   wx_name?: string;
   unfit?: boolean;
-  size?: number;            // 图片文件大小（字节）
+  size?: number;            // ??????????
+  first_seen_at?: string;
+  last_seen_at?: string;
+  last_source_type?: string;
+  download_stage?: 'none' | 'preview' | 'full';
+  preview_downloaded_at?: string;
+  full_downloaded_at?: string;
+  image_variants?: string;
 }
 
 // pic_task 表类型定义

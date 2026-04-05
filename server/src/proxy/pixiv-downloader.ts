@@ -7,7 +7,8 @@ import {
   buildPixivB2Key,
   extractFileExtension,
   getB2BaseUrlFromEnv,
-  normalizeSize
+  normalizeSize,
+  parseImagePathValue
 } from './storage-path';
 
 interface ILogManager {
@@ -22,6 +23,13 @@ export interface DownloadResult {
   b2Url?: string;
   fileSize?: number;
   error?: string;
+}
+
+export interface ReconcileArchiveResult {
+  pid: string;
+  existingPaths: string[];
+  missingPaths: string[];
+  changed: boolean;
 }
 
 export class PixivDownloader {
@@ -264,5 +272,45 @@ export class PixivDownloader {
       this.taskId
     );
     return results;
+  }
+
+  async reconcileArchivedVariants(
+    pid: string,
+    imagePath?: string | null,
+    imageVariants?: string | null,
+    timestamps?: {
+      previewDownloadedAt?: string | null;
+      fullDownloadedAt?: string | null;
+    }
+  ): Promise<ReconcileArchiveResult> {
+    const candidatePaths = Array.from(
+      new Set([
+        ...parseImagePathValue(imagePath),
+        ...parseImagePathValue(imageVariants)
+      ])
+    );
+
+    const existingPaths: string[] = [];
+    const missingPaths: string[] = [];
+
+    for (const path of candidatePaths) {
+      if (await this.existsInB2(path)) {
+        existingPaths.push(path);
+      } else {
+        missingPaths.push(path);
+      }
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+
+    await this.turso.replacePicArchiveState(pid, existingPaths, timestamps);
+
+    return {
+      pid,
+      existingPaths,
+      missingPaths,
+      changed:
+        existingPaths.length !== candidatePaths.length ||
+        existingPaths.some((path, index) => path !== candidatePaths[index])
+    };
   }
 }

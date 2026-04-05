@@ -65,7 +65,11 @@ function getSchedulerConfig() {
 
     fullDownloadInterval: minuteToMs(parseInt(process.env.SCHEDULER_FULL_DOWNLOAD_INTERVAL || '5')),
     fullDownloadLimit: parseInt(process.env.SCHEDULER_FULL_DOWNLOAD_LIMIT || process.env.FULL_DOWNLOAD_DEFAULT_LIMIT || '30'),
-    fullDownloadEnabled: parseBool(process.env.SCHEDULER_FULL_DOWNLOAD_ENABLED, true)
+    fullDownloadEnabled: parseBool(process.env.SCHEDULER_FULL_DOWNLOAD_ENABLED, true),
+
+    reconcileStorageInterval: minuteToMs(parseInt(process.env.SCHEDULER_RECONCILE_STORAGE_INTERVAL || '1440')),
+    reconcileStorageLimit: parseInt(process.env.SCHEDULER_RECONCILE_STORAGE_LIMIT || '50'),
+    reconcileStorageEnabled: parseBool(process.env.SCHEDULER_RECONCILE_STORAGE_ENABLED, false)
   };
 }
 
@@ -197,6 +201,17 @@ export class TaskScheduler {
           limit: config.fullDownloadLimit
         },
         enabled: config.fullDownloadEnabled
+      },
+      {
+        name: 'Reconcile Storage State',
+        action: 'reconcile-storage',
+        method: 'POST',
+        interval: config.reconcileStorageInterval,
+        body: {
+          action: 'reconcile-storage',
+          limit: config.reconcileStorageLimit
+        },
+        enabled: config.reconcileStorageEnabled
       }
     ];
 

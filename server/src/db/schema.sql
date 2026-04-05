@@ -18,6 +18,13 @@ CREATE TABLE IF NOT EXISTS pic (
     wx_name TEXT,
     unfit INTEGER DEFAULT 0,
     size INTEGER,
+    first_seen_at TEXT,
+    last_seen_at TEXT,
+    last_source_type TEXT,
+    download_stage TEXT DEFAULT 'none',
+    preview_downloaded_at TEXT,
+    full_downloaded_at TEXT,
+    image_variants TEXT DEFAULT '{}',
     created_at TEXT,
     updated_at TEXT
 );
@@ -26,6 +33,8 @@ CREATE INDEX IF NOT EXISTS idx_pic_popularity ON pic(popularity DESC);
 CREATE INDEX IF NOT EXISTS idx_pic_author_id ON pic(author_id);
 CREATE INDEX IF NOT EXISTS idx_pic_download_time ON pic(download_time);
 CREATE INDEX IF NOT EXISTS idx_pic_unfit ON pic(unfit);
+CREATE INDEX IF NOT EXISTS idx_pic_download_stage ON pic(download_stage);
+CREATE INDEX IF NOT EXISTS idx_pic_last_seen ON pic(last_seen_at);
 
 CREATE TABLE IF NOT EXISTS pic_task (
     pid TEXT PRIMARY KEY,

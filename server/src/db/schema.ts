@@ -25,13 +25,22 @@ export const pic = sqliteTable('pic', {
   wxName: text('wx_name'),
   unfit: integer('unfit').default(0),
   size: integer('size'),
+  firstSeenAt: text('first_seen_at'),
+  lastSeenAt: text('last_seen_at'),
+  lastSourceType: text('last_source_type'),
+  downloadStage: text('download_stage').default('none'),
+  previewDownloadedAt: text('preview_downloaded_at'),
+  fullDownloadedAt: text('full_downloaded_at'),
+  imageVariants: text('image_variants').default('{}'),
   createdAt: text('created_at'),
   updatedAt: text('updated_at')
 }, table => [
   index('idx_pic_popularity').on(table.popularity),
   index('idx_pic_author_id').on(table.authorId),
   index('idx_pic_download_time').on(table.downloadTime),
-  index('idx_pic_unfit').on(table.unfit)
+  index('idx_pic_unfit').on(table.unfit),
+  index('idx_pic_download_stage').on(table.downloadStage),
+  index('idx_pic_last_seen').on(table.lastSeenAt)
 ]);
 
 export const picTask = sqliteTable('pic_task', {

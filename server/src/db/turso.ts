@@ -1,6 +1,11 @@
 import { type Client } from '@libsql/client';
 import { DatabasePic, DownloadJob, PicTask, PixivDailyRankItem, WatchTarget } from '../types';
 import { createLibsqlClient, getSharedLibsqlClient } from './client';
+import {
+  buildImageVariants as buildImageVariantMap,
+  parseImagePathValue,
+  type PixivImageSize
+} from '../proxy/storage-path';
 
 type TaskType = 'illust_recommend' | 'author_recommend' | 'detail_info';
 type RankingSourceType = 'ranking_daily' | 'ranking_weekly' | 'ranking_monthly';
@@ -76,6 +81,15 @@ export interface DownloadJobInput {
   maxAttempts?: number;
 }
 
+export interface PicArchiveStateRow {
+  pid: string;
+  image_path: string;
+  image_variants?: string;
+  download_stage?: 'none' | 'preview' | 'full';
+  preview_downloaded_at?: string;
+  full_downloaded_at?: string;
+}
+
 export interface WatchTargetUpsertInput {
   id?: number;
   targetType: WatchTargetType;
@@ -138,6 +152,9 @@ export class TursoService {
    */
   async upsertPic(pic: DatabasePic): Promise<void> {
     const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    const downloadStage = pic.download_stage && pic.download_stage !== 'none'
+      ? pic.download_stage
+      : null;
 
     try {
       await this.client.execute({
@@ -145,9 +162,12 @@ export class TursoService {
           INSERT INTO pic (
             pid, title, author_id, author_name, tag, good, star, view,
             image_path, image_url, popularity, download_time, upload_time,
-            wx_url, wx_name, unfit, size, created_at, updated_at
+            wx_url, wx_name, unfit, size,
+            first_seen_at, last_seen_at, last_source_type,
+            download_stage, preview_downloaded_at, full_downloaded_at, image_variants,
+            created_at, updated_at
           ) VALUES (
-            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
           )
           ON CONFLICT(pid) DO UPDATE SET
             title = COALESCE(excluded.title, pic.title),
@@ -166,6 +186,24 @@ export class TursoService {
             wx_name = COALESCE(excluded.wx_name, pic.wx_name),
             unfit = COALESCE(excluded.unfit, pic.unfit),
             size = COALESCE(excluded.size, pic.size),
+            first_seen_at = COALESCE(pic.first_seen_at, excluded.first_seen_at),
+            last_seen_at = CASE
+              WHEN excluded.last_seen_at IS NOT NULL
+                AND (pic.last_seen_at IS NULL OR excluded.last_seen_at >= pic.last_seen_at)
+              THEN excluded.last_seen_at
+              ELSE pic.last_seen_at
+            END,
+            last_source_type = CASE
+              WHEN excluded.last_source_type IS NOT NULL
+                AND excluded.last_seen_at IS NOT NULL
+                AND (pic.last_seen_at IS NULL OR excluded.last_seen_at >= pic.last_seen_at)
+              THEN excluded.last_source_type
+              ELSE COALESCE(pic.last_source_type, excluded.last_source_type)
+            END,
+            download_stage = COALESCE(excluded.download_stage, pic.download_stage),
+            preview_downloaded_at = COALESCE(excluded.preview_downloaded_at, pic.preview_downloaded_at),
+            full_downloaded_at = COALESCE(excluded.full_downloaded_at, pic.full_downloaded_at),
+            image_variants = COALESCE(excluded.image_variants, pic.image_variants),
             updated_at = ?
         `,
         args: [
@@ -186,6 +224,13 @@ export class TursoService {
           pic.wx_name || null,
           pic.unfit ? 1 : 0,
           pic.size || null,
+          pic.first_seen_at || now,
+          pic.last_seen_at || now,
+          pic.last_source_type || null,
+          downloadStage,
+          pic.preview_downloaded_at || null,
+          pic.full_downloaded_at || null,
+          pic.image_variants || null,
           now,
           now,
           now
@@ -287,51 +332,67 @@ export class TursoService {
     const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
 
     try {
-      // 鍏堟煡璇㈠綋鍓嶇殑 image_path锛屾敮鎸佸灏哄瀛樺偍锛圝SON鏁扮粍鏍煎紡锛?
+      await this.upsertMinimalPics([pid]);
+
       const existing = await this.client.execute({
-        sql: 'SELECT image_path FROM pic WHERE pid = ?',
+        sql: `
+          SELECT image_path, image_variants, preview_downloaded_at, full_downloaded_at
+          FROM pic
+          WHERE pid = ?
+        `,
         args: [pid]
       });
 
-      let newImagePath: string;
-      if (existing.rows.length > 0 && existing.rows[0].image_path) {
-        const currentPath = existing.rows[0].image_path as string;
-        try {
-          // 灏濊瘯瑙ｆ瀽涓?JSON 鏁扮粍
-          const paths: string[] = JSON.parse(currentPath);
-          if (!paths.includes(path)) {
-            paths.push(path);
-          }
-          newImagePath = JSON.stringify(paths);
-        } catch {
-          // 鏃ф牸寮忥紙鍗曚釜璺緞锛夛紝杞崲涓烘暟缁勬牸寮?
-          if (currentPath === path) {
-            newImagePath = JSON.stringify([currentPath]);
-          } else {
-            newImagePath = JSON.stringify([currentPath, path]);
-          }
-        }
-      } else {
-        // 鏂拌褰曪紝鐩存帴鍒涘缓鏁扮粍
-        newImagePath = JSON.stringify([path]);
-      }
+      const currentRow = existing.rows[0];
+      const mergedPaths = this.normalizeArchivePaths([
+        ...this.collectKnownArchivePaths(
+          currentRow?.image_path as string | undefined,
+          currentRow?.image_variants as string | undefined
+        ),
+        path
+      ]);
+      const archiveState = this.buildArchiveState(
+        mergedPaths,
+        currentRow?.preview_downloaded_at as string | undefined,
+        currentRow?.full_downloaded_at as string | undefined,
+        now
+      );
 
       await this.client.execute({
         sql: `
           UPDATE pic SET
             image_path = ?,
+            image_variants = ?,
+            download_stage = ?,
+            preview_downloaded_at = ?,
+            full_downloaded_at = ?,
             image_url = COALESCE(?, image_url),
             upload_time = ?,
             size = COALESCE(?, size),
             updated_at = ?
           WHERE pid = ?
         `,
-        args: [newImagePath, imgUrl || null, now, fileSize || null, now, pid]
+        args: [
+          archiveState.imagePath,
+          archiveState.imageVariants,
+          archiveState.downloadStage,
+          archiveState.previewDownloadedAt,
+          archiveState.fullDownloadedAt,
+          imgUrl || null,
+          now,
+          fileSize || null,
+          now,
+          pid
+        ]
       });
 
-      console.log('鏇存柊 Pic 涓嬭浇淇℃伅瀹屾垚:', { pid, image_path: newImagePath });
+      console.log('?? Pic ??????:', {
+        pid,
+        image_path: archiveState.imagePath,
+        download_stage: archiveState.downloadStage
+      });
     } catch (error) {
-      console.error('鏇存柊 Pic 涓嬭浇淇℃伅澶辫触:', error);
+      console.error('?? Pic ??????:', error);
       throw error;
     }
   }
@@ -379,6 +440,99 @@ export class TursoService {
    * 鏈€灏忓寲鎵归噺鎻掑叆/鏇存柊 Pic (浠?pid)
    * @param pids PID 鏁扮粍
    */
+  async replacePicArchiveState(
+    pid: string,
+    paths: string[],
+    timestamps?: {
+      previewDownloadedAt?: string | null;
+      fullDownloadedAt?: string | null;
+    }
+  ): Promise<void> {
+    const archiveState = this.buildArchiveState(
+      paths,
+      timestamps?.previewDownloadedAt,
+      timestamps?.fullDownloadedAt
+    );
+
+    await this.client.execute({
+      sql: `
+        UPDATE pic
+        SET image_path = ?,
+            image_variants = ?,
+            download_stage = ?,
+            preview_downloaded_at = ?,
+            full_downloaded_at = ?,
+            updated_at = ?
+        WHERE pid = ?
+      `,
+      args: [
+        archiveState.imagePath,
+        archiveState.imageVariants,
+        archiveState.downloadStage,
+        archiveState.previewDownloadedAt,
+        archiveState.fullDownloadedAt,
+        this.now(),
+        pid
+      ]
+    });
+  }
+
+  async listPicsForStorageReconcile(limit: number = 100, pids?: string[]): Promise<PicArchiveStateRow[]> {
+    const safeLimit = Math.max(1, Math.min(limit, 500));
+    const targetPids = Array.isArray(pids)
+      ? pids.map(pid => this.normalizeText(pid)).filter((pid): pid is string => Boolean(pid))
+      : [];
+
+    try {
+      if (targetPids.length > 0) {
+        const placeholders = targetPids.map(() => '?').join(', ');
+        const result = await this.client.execute({
+          sql: `
+            SELECT pid, image_path, image_variants, download_stage, preview_downloaded_at, full_downloaded_at
+            FROM pic
+            WHERE pid IN (${placeholders})
+            ORDER BY COALESCE(updated_at, created_at, '') DESC
+            LIMIT ?
+          `,
+          args: [...targetPids, safeLimit]
+        });
+
+        return result.rows.map(row => ({
+          pid: row.pid as string,
+          image_path: (row.image_path as string) || '',
+          image_variants: row.image_variants as string | undefined,
+          download_stage: (row.download_stage as PicArchiveStateRow['download_stage']) || 'none',
+          preview_downloaded_at: row.preview_downloaded_at as string | undefined,
+          full_downloaded_at: row.full_downloaded_at as string | undefined
+        }));
+      }
+
+      const result = await this.client.execute({
+        sql: `
+          SELECT pid, image_path, image_variants, download_stage, preview_downloaded_at, full_downloaded_at
+          FROM pic
+          WHERE COALESCE(TRIM(image_path), '') <> ''
+             OR COALESCE(TRIM(image_variants), '') NOT IN ('', '{}')
+          ORDER BY COALESCE(updated_at, created_at, '') DESC
+          LIMIT ?
+        `,
+        args: [safeLimit]
+      });
+
+      return result.rows.map(row => ({
+        pid: row.pid as string,
+        image_path: (row.image_path as string) || '',
+        image_variants: row.image_variants as string | undefined,
+        download_stage: (row.download_stage as PicArchiveStateRow['download_stage']) || 'none',
+        preview_downloaded_at: row.preview_downloaded_at as string | undefined,
+        full_downloaded_at: row.full_downloaded_at as string | undefined
+      }));
+    } catch (error) {
+      console.error('list pics for storage reconcile failed:', error);
+      return [];
+    }
+  }
+
   async upsertMinimalPics(pids: string[]): Promise<void> {
     const uniquePids = Array.from(new Set(pids));
     if (uniquePids.length === 0) return;
@@ -389,11 +543,15 @@ export class TursoService {
       // 浣跨敤浜嬪姟鎵归噺鎻掑叆
       const statements = uniquePids.map(pid => ({
         sql: `
-          INSERT INTO pic (pid, tag, good, star, view, image_path, image_url, popularity, created_at, updated_at)
-          VALUES (?, '', 0, 0, 0, '', '', 0, ?, ?)
+          INSERT INTO pic (
+            pid, tag, good, star, view, image_path, image_url, popularity,
+            first_seen_at, last_seen_at, download_stage, image_variants,
+            created_at, updated_at
+          )
+          VALUES (?, '', 0, 0, 0, '', '', 0, ?, ?, 'none', '{}', ?, ?)
           ON CONFLICT(pid) DO NOTHING
         `,
-        args: [pid, now, now]
+        args: [pid, now, now, now, now]
       }));
 
       await this.client.batch(statements);
@@ -559,6 +717,7 @@ export class TursoService {
             AND COALESCE(p.popularity, 0) >= ?
             AND (t.detail_info_crawled = 1 OR t.detail_info_crawled IS NULL)
             AND (
+              COALESCE(p.download_stage, 'none') = 'none' OR
               p.image_path IS NULL OR
               TRIM(p.image_path) = '' OR
               TRIM(p.image_path) = '[]'
@@ -617,6 +776,73 @@ export class TursoService {
 
   private normalizeBoolean(value?: boolean): number {
     return value === false ? 0 : 1;
+  }
+
+  private normalizeArchivePaths(paths: Array<string | null | undefined>): string[] {
+    return Array.from(
+      new Set(
+        paths
+          .map(path => this.normalizeText(path))
+          .filter((path): path is string => Boolean(path))
+      )
+    );
+  }
+
+  private parseImageVariantsValue(raw?: string | null): Partial<Record<PixivImageSize, string>> {
+    if (!raw) return {};
+
+    try {
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return {};
+      }
+
+      const variants: Partial<Record<PixivImageSize, string>> = {};
+      for (const size of ['thumb_mini', 'small', 'regular', 'original'] as const) {
+        const value = parsed[size];
+        if (typeof value === 'string' && value.trim()) {
+          variants[size] = value.trim();
+        }
+      }
+
+      return variants;
+    } catch {
+      return {};
+    }
+  }
+
+  private collectKnownArchivePaths(imagePath?: string | null, imageVariants?: string | null): string[] {
+    const pathValues = parseImagePathValue(imagePath);
+    const variantValues = Object.values(this.parseImageVariantsValue(imageVariants));
+    return this.normalizeArchivePaths([...pathValues, ...variantValues]);
+  }
+
+  private buildArchiveState(
+    paths: string[],
+    existingPreviewDownloadedAt?: string | null,
+    existingFullDownloadedAt?: string | null,
+    archivedAt?: string | null
+  ): {
+    imagePath: string;
+    imageVariants: string;
+    downloadStage: 'none' | 'preview' | 'full';
+    previewDownloadedAt: string | null;
+    fullDownloadedAt: string | null;
+  } {
+    const normalizedPaths = this.normalizeArchivePaths(paths);
+    const variants = buildImageVariantMap(normalizedPaths);
+    const hasAny = normalizedPaths.length > 0;
+    const hasFull = Boolean(variants.original || variants.regular);
+    const fullDownloadedAt = hasFull ? (existingFullDownloadedAt || archivedAt || null) : null;
+    const previewDownloadedAt = hasAny ? (existingPreviewDownloadedAt || fullDownloadedAt || archivedAt || null) : null;
+
+    return {
+      imagePath: normalizedPaths.length > 0 ? JSON.stringify(normalizedPaths) : '',
+      imageVariants: JSON.stringify(variants),
+      downloadStage: hasFull ? 'full' : hasAny ? 'preview' : 'none',
+      previewDownloadedAt,
+      fullDownloadedAt
+    };
   }
 
   private isPersistableSourceType(value?: string | null): value is PicSourceType {
@@ -716,6 +942,39 @@ export class TursoService {
             source.sourceScore,
             source.meta,
             source.discoveredAt,
+            now,
+            now
+          ]
+        }))
+      );
+
+      await this.client.batch(
+        Array.from(deduped.values()).map(source => ({
+          sql: `
+            INSERT INTO pic (
+              pid, tag, good, star, view, image_path, image_url, popularity,
+              first_seen_at, last_seen_at, last_source_type, download_stage, image_variants,
+              created_at, updated_at
+            )
+            VALUES (?, '', 0, 0, 0, '', '', 0, ?, ?, ?, 'none', '{}', ?, ?)
+            ON CONFLICT(pid) DO UPDATE SET
+              last_seen_at = CASE
+                WHEN excluded.last_seen_at > COALESCE(pic.last_seen_at, '')
+                THEN excluded.last_seen_at
+                ELSE pic.last_seen_at
+              END,
+              last_source_type = CASE
+                WHEN excluded.last_seen_at > COALESCE(pic.last_seen_at, '')
+                THEN excluded.last_source_type
+                ELSE COALESCE(pic.last_source_type, excluded.last_source_type)
+              END,
+              updated_at = excluded.updated_at
+          `,
+          args: [
+            source.pid,
+            source.discoveredAt,
+            source.discoveredAt,
+            source.sourceType,
             now,
             now
           ]
@@ -990,6 +1249,8 @@ export class TursoService {
     const sourceRecentAt = this.normalizeSourceRecentAt(options?.sourceRecentAt);
 
     try {
+      await this.upsertMinimalPics(uniquePids);
+
       const statements = uniquePids.map(pid => {
         if (!options) {
           return {
@@ -1475,6 +1736,7 @@ export class TursoService {
             AND COALESCE(p.popularity, 0) >= ?
             AND t.detail_info_crawled = 1
             AND (
+              COALESCE(p.download_stage, 'none') = 'none' OR
               p.image_path IS NULL OR
               TRIM(p.image_path) = '' OR
               TRIM(p.image_path) = '[]'
@@ -1696,7 +1958,14 @@ export class TursoService {
       wx_url: row.wx_url as string | undefined,
       wx_name: row.wx_name as string | undefined,
       unfit: Boolean(row.unfit),
-      size: row.size ? Number(row.size) : undefined
+      size: row.size ? Number(row.size) : undefined,
+      first_seen_at: row.first_seen_at as string | undefined,
+      last_seen_at: row.last_seen_at as string | undefined,
+      last_source_type: row.last_source_type as string | undefined,
+      download_stage: (row.download_stage as DatabasePic['download_stage']) || 'none',
+      preview_downloaded_at: row.preview_downloaded_at as string | undefined,
+      full_downloaded_at: row.full_downloaded_at as string | undefined,
+      image_variants: row.image_variants as string | undefined
     };
   }
 
