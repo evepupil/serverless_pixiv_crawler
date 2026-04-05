@@ -64,12 +64,15 @@ export interface RecentPreviewQuotaConfig {
 export interface RecentPreviewCandidate {
   pid: string;
   priority: number;
+  candidateScore: number;
   sourceType: string;
   sourceKey?: string;
   sourceRecentAt?: string;
   popularity: number;
   view: number;
 }
+
+export interface BackfillPreviewCandidate extends RecentPreviewCandidate {}
 
 export interface DownloadJobInput {
   pid: string;
@@ -103,19 +106,19 @@ export interface WatchTargetUpsertInput {
 }
 
 /**
- * TursoService - 鍩轰簬 @libsql/client 鐨勬暟鎹簱鏈嶅姟绫?
+ * TursoService - 鍩轰�?@libsql/client 鐨勬暟鎹簱鏈嶅姟绫?
  *
- * 鐩告瘮 Supabase (PostgreSQL)锛屼娇鐢?SQLite 璇硶锛屽苟鏀寔 Turso 鐨?Local Read Replica
- * 鍔熻兘锛屽彲灏嗘煡璇㈠欢杩熼檷鑷冲井绉掔骇锛屾瀬澶ф彁鍗囬€掑綊鐖櫕鍘婚噸妫€鏌ョ殑閫熷害銆?
+ * 鐩告�?Supabase (PostgreSQL)锛屼娇鐢?SQLite 璇硶锛屽苟鏀寔 Turso �?Local Read Replica
+ * 鍔熻兘锛屽彲灏嗘煡璇㈠欢杩熼檷鑷冲井绉掔骇锛屾瀬澶ф彁鍗囬€掑綊鐖櫕鍘婚噸妫€鏌ョ殑閫熷害�?
  */
 export class TursoService {
   private client: Client;
 
   /**
    * TursoService 鏋勯€犲嚱鏁?
-   * @param url Turso 鏁版嵁搴?URL (渚嬪: libsql://xxx.turso.io)
+   * @param url Turso 鏁版嵁搴?URL (渚嬪�? libsql://xxx.turso.io)
    * @param authToken Turso 璁よ瘉浠ょ墝
-   * @param syncUrl 鍙€夌殑鏈湴鍚屾 URL (鐢ㄤ簬 Local Read Replica)
+   * @param syncUrl 鍙€夌殑鏈湴鍚屾 URL (鐢ㄤ�?Local Read Replica)
    */
   constructor(url?: string, authToken?: string, syncUrl?: string) {
     const dbUrl = url || process.env.TURSO_DATABASE_URL;
@@ -135,7 +138,7 @@ export class TursoService {
       console.log('Turso 鏈湴鍓湰妯″紡宸插惎鐢紝鍚屾URL:', localSyncUrl);
     }
 
-    console.log('Turso 瀹㈡埛绔垵濮嬪寲瀹屾垚:', {
+    console.log('Turso 瀹㈡埛绔垵濮嬪寲瀹屾�?', {
       url: dbUrl.substring(0, 30) + '...',
       hasLocalReplica: !!localSyncUrl
     });
@@ -146,8 +149,8 @@ export class TursoService {
   // ========================================
 
   /**
-   * 鍒涘缓鎴栨洿鏂?Pic 璁板綍 (Upsert)
-   * 浣跨敤 SQLite 鐨?ON CONFLICT(pid) DO UPDATE 璇硶
+   * 鍒涘缓鎴栨洿�?Pic 璁板�?(Upsert)
+   * 浣跨�?SQLite �?ON CONFLICT(pid) DO UPDATE 璇�?
    * @param pic 鍥剧墖鏁版嵁
    */
   async upsertPic(pic: DatabasePic): Promise<void> {
@@ -155,6 +158,10 @@ export class TursoService {
     const downloadStage = pic.download_stage && pic.download_stage !== 'none'
       ? pic.download_stage
       : null;
+    const candidateScore =
+      typeof pic.candidate_score === 'number' && Number.isFinite(pic.candidate_score)
+        ? pic.candidate_score
+        : null;
 
     try {
       await this.client.execute({
@@ -165,9 +172,9 @@ export class TursoService {
             wx_url, wx_name, unfit, size,
             first_seen_at, last_seen_at, last_source_type,
             download_stage, preview_downloaded_at, full_downloaded_at, image_variants,
-            created_at, updated_at
+            candidate_score, created_at, updated_at
           ) VALUES (
-            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
           )
           ON CONFLICT(pid) DO UPDATE SET
             title = COALESCE(excluded.title, pic.title),
@@ -204,6 +211,7 @@ export class TursoService {
             preview_downloaded_at = COALESCE(excluded.preview_downloaded_at, pic.preview_downloaded_at),
             full_downloaded_at = COALESCE(excluded.full_downloaded_at, pic.full_downloaded_at),
             image_variants = COALESCE(excluded.image_variants, pic.image_variants),
+            candidate_score = COALESCE(excluded.candidate_score, pic.candidate_score),
             updated_at = ?
         `,
         args: [
@@ -231,21 +239,24 @@ export class TursoService {
           pic.preview_downloaded_at || null,
           pic.full_downloaded_at || null,
           pic.image_variants || null,
+          candidateScore,
           now,
           now,
           now
         ]
       });
 
-      console.log('Upsert Pic 瀹屾垚:', { pid: pic.pid });
+      await this.refreshCandidateScores({ pids: [pic.pid] });
+
+      console.log('Upsert Pic 瀹屾�?', { pid: pic.pid });
     } catch (error) {
-      console.error('Upsert Pic 澶辫触:', error);
+      console.error('Upsert Pic 澶辫�?', error);
       throw error;
     }
   }
 
   /**
-   * 鍒涘缓 Pic 璁板綍 (鍏煎鏃ф帴鍙?
+   * 鍒涘�?Pic 璁板�?(鍏煎鏃ф帴鍙?
    * @param pic 鍥剧墖鏁版嵁
    */
   async createPic(pic: DatabasePic): Promise<void> {
@@ -253,9 +264,9 @@ export class TursoService {
   }
 
   /**
-   * 鏍规嵁 PID 鑾峰彇 Pic 璁板綍
+   * 鏍规�?PID 鑾峰�?Pic 璁板�?
    * @param pid 鍥剧墖ID
-   * @returns DatabasePic 鎴?null
+   * @returns DatabasePic �?null
    */
   async getPicByPid(pid: string): Promise<DatabasePic | null> {
     try {
@@ -270,16 +281,16 @@ export class TursoService {
 
       return this.rowToDatabasePic(result.rows[0]);
     } catch (error) {
-      console.error('鑾峰彇 Pic 澶辫触:', error);
+      console.error('鑾峰�?Pic 澶辫�?', error);
       return null;
     }
   }
 
   /**
-   * 妫€鏌?PID 鏄惁宸插瓨鍦紙楂樻€ц兘鍘婚噸妫€鏌ワ級
-   * 鍒╃敤 Local Read Replica 鍙疄鐜板井绉掔骇鏌ヨ
+   * 妫€�?PID 鏄惁宸插瓨鍦紙楂樻€ц兘鍘婚噸妫€鏌ワ�?
+   * 鍒╃�?Local Read Replica 鍙疄鐜板井绉掔骇鏌ヨ
    * @param pid 鍥剧墖ID
-   * @returns 鏄惁瀛樺湪
+   * @returns 鏄惁瀛樺�?
    */
   async existsPid(pid: string): Promise<boolean> {
     try {
@@ -289,21 +300,21 @@ export class TursoService {
       });
       return result.rows.length > 0;
     } catch (error) {
-      console.error('妫€鏌?PID 瀛樺湪鎬уけ璐?', error);
+      console.error('妫€�?PID 瀛樺湪鎬уけ璐?', error);
       return false;
     }
   }
 
   /**
    * 鎵归噺妫€鏌?PID 鏄惁宸插瓨鍦紙楂樻€ц兘鎵归噺鍘婚噸锛?
-   * @param pids PID 鏁扮粍
-   * @returns 宸插瓨鍦ㄧ殑 PID 闆嗗悎
+   * @param pids PID 鏁扮�?
+   * @returns 宸插瓨鍦ㄧ殑 PID 闆嗗�?
    */
   async getExistingPids(pids: string[]): Promise<Set<string>> {
     if (pids.length === 0) return new Set();
 
     try {
-      // SQLite 浣跨敤 IN 瀛愬彞锛屾瀯寤哄崰浣嶇
+      // SQLite 浣跨�?IN 瀛愬彞锛屾瀯寤哄崰浣嶇�?
       const placeholders = pids.map(() => '?').join(',');
       const result = await this.client.execute({
         sql: `SELECT pid FROM pic WHERE pid IN (${placeholders})`,
@@ -316,17 +327,17 @@ export class TursoService {
       }
       return existingPids;
     } catch (error) {
-      console.error('鎵归噺妫€鏌?PID 澶辫触:', error);
+      console.error('鎵归噺妫€鏌?PID 澶辫�?', error);
       return new Set();
     }
   }
 
   /**
-   * 鏇存柊 Pic 涓嬭浇淇℃伅
+   * 鏇存�?Pic 涓嬭浇淇℃伅
    * @param pid 鍥剧墖ID
-   * @param path 瀛樺偍璺緞锛堜笉甯﹀煙鍚嶅墠缂€锛?
+   * @param path 瀛樺偍璺緞锛堜笉甯﹀煙鍚嶅墠缂€�?
    * @param imgUrl 鍥剧墖URL
-   * @param fileSize 鏂囦欢澶у皬锛堝彲閫夛級
+   * @param fileSize 鏂囦欢澶у皬锛堝彲閫夛�?
    */
   async updatePicDownload(pid: string, path: string, imgUrl: string, fileSize?: number): Promise<void> {
     const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
@@ -398,14 +409,14 @@ export class TursoService {
   }
 
   /**
-   * 鏇存柊 Pic 璁板綍
-   * @param pic 閮ㄥ垎鍥剧墖鏁版嵁 (蹇呴』鍖呭惈 pid)
+   * 鏇存�?Pic 璁板�?
+   * @param pic 閮ㄥ垎鍥剧墖鏁版�?(蹇呴』鍖呭惈 pid)
    */
   async updatePic(pic: Partial<DatabasePic> & { pid: string }): Promise<void> {
     const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
     const { pid, ...updateData } = pic;
 
-    // 鍔ㄦ€佹瀯寤?SET 瀛愬彞
+    // 鍔ㄦ€佹瀯寤?SET 瀛愬�?
     const setClauses: string[] = [];
     const args: any[] = [];
 
@@ -416,11 +427,11 @@ export class TursoService {
       }
     }
 
-    // 娣诲姞 updated_at
+    // 娣诲�?updated_at
     setClauses.push('updated_at = ?');
     args.push(now);
 
-    // 娣诲姞 WHERE 鏉′欢鐨勫弬鏁?
+    // 娣诲�?WHERE 鏉′欢鐨勫弬鏁?
     args.push(pid);
 
     try {
@@ -429,16 +440,18 @@ export class TursoService {
         args
       });
 
-      console.log('鏇存柊 Pic 瀹屾垚:', { pid });
+      await this.refreshCandidateScores({ pids: [pid] });
+
+      console.log('鏇存�?Pic 瀹屾�?', { pid });
     } catch (error) {
-      console.error('鏇存柊 Pic 澶辫触:', error);
+      console.error('鏇存�?Pic 澶辫�?', error);
       throw error;
     }
   }
 
   /**
-   * 鏈€灏忓寲鎵归噺鎻掑叆/鏇存柊 Pic (浠?pid)
-   * @param pids PID 鏁扮粍
+   * 鏈€灏忓寲鎵归噺鎻掑�?鏇存�?Pic (�?pid)
+   * @param pids PID 鏁扮�?
    */
   async replacePicArchiveState(
     pid: string,
@@ -545,10 +558,10 @@ export class TursoService {
         sql: `
           INSERT INTO pic (
             pid, tag, good, star, view, image_path, image_url, popularity,
-            first_seen_at, last_seen_at, download_stage, image_variants,
+            first_seen_at, last_seen_at, download_stage, image_variants, candidate_score,
             created_at, updated_at
           )
-          VALUES (?, '', 0, 0, 0, '', '', 0, ?, ?, 'none', '{}', ?, ?)
+          VALUES (?, '', 0, 0, 0, '', '', 0, ?, ?, 'none', '{}', 0, ?, ?)
           ON CONFLICT(pid) DO NOTHING
         `,
         args: [pid, now, now, now, now]
@@ -556,11 +569,53 @@ export class TursoService {
 
       await this.client.batch(statements);
 
-      console.log('鎵归噺 Upsert 鏈€灏?Pic 瀹屾垚:', { count: uniquePids.length });
+      console.log('鎵归�?Upsert 鏈€�?Pic 瀹屾�?', { count: uniquePids.length });
     } catch (error) {
-      console.error('鎵归噺 Upsert 鏈€灏?Pic 澶辫触:', error);
+      console.error('鎵归�?Upsert 鏈€�?Pic 澶辫�?', error);
       throw error;
     }
+  }
+
+
+  async refreshCandidateScores(options?: { pids?: string[]; limit?: number }): Promise<number> {
+    const requestedPids = Array.isArray(options?.pids)
+      ? options.pids.map(pid => this.normalizeText(pid)).filter((pid): pid is string => Boolean(pid))
+      : [];
+    let targetPids = Array.from(new Set(requestedPids));
+
+    if (targetPids.length === 0) {
+      const safeLimit = Math.max(1, Math.min(options?.limit ?? 200, 2000));
+      const result = await this.client.execute({
+        sql: `
+          SELECT pid
+          FROM pic
+          ORDER BY COALESCE(last_seen_at, updated_at, created_at, '') DESC
+          LIMIT ?
+        `,
+        args: [safeLimit]
+      });
+      targetPids = result.rows.map(row => row.pid as string);
+    }
+
+    if (targetPids.length === 0) {
+      return 0;
+    }
+
+    const candidateScoreSql = this.buildCalculatedCandidateScoreExpression('pic');
+
+    for (const batch of this.chunkArray(targetPids, 200)) {
+      const placeholders = batch.map(() => '?').join(', ');
+      await this.client.execute({
+        sql: `
+          UPDATE pic
+          SET candidate_score = ROUND(${candidateScoreSql}, 4)
+          WHERE pid IN (${placeholders})
+        `,
+        args: batch
+      });
+    }
+
+    return targetPids.length;
   }
 
   // ========================================
@@ -576,14 +631,14 @@ export class TursoService {
       const result = await this.client.execute('SELECT COUNT(*) as count FROM pic');
       return Number(result.rows[0].count) || 0;
     } catch (error) {
-      console.error('鑾峰彇鎬诲浘鐗囨暟閲忓け璐?', error);
+      console.error('鑾峰彇鎬诲浘鐗囨暟閲忓け�?', error);
       return 0;
     }
   }
 
   /**
-   * 鑾峰彇宸蹭笅杞藉浘鐗囨暟閲?
-   * @returns 宸蹭笅杞芥暟閲?
+   * 鑾峰彇宸蹭笅杞藉浘鐗囨暟�?
+   * @returns 宸蹭笅杞芥暟�?
    */
   async getDownloadedPicsCount(): Promise<number> {
     try {
@@ -598,8 +653,8 @@ export class TursoService {
   }
 
   /**
-   * 鑾峰彇骞冲潎鐑害
-   * @returns 骞冲潎鐑害鍊?
+   * 鑾峰彇骞冲潎鐑�?
+   * @returns 骞冲潎鐑害�?
    */
   async getAveragePopularity(): Promise<number> {
     try {
@@ -614,7 +669,7 @@ export class TursoService {
 
   /**
    * 鑾峰彇缁熻淇℃伅锛堟ā鎷熻鍥炬煡璇級
-   * @returns 缁熻瀵硅薄
+   * @returns 缁熻瀵硅�?
    */
   async getStatsFromView(): Promise<{ totalPics: number; downloadedPics: number; avgPopularity: number }> {
     try {
@@ -639,33 +694,33 @@ export class TursoService {
   }
 
   /**
-   * 闅忔満鑾峰彇 PID 鍒楄〃
-   * @param count 鏁伴噺
-   * @returns PID 鏁扮粍
+   * 闅忔満鑾峰�?PID 鍒楄�?
+   * @param count 鏁伴�?
+   * @returns PID 鏁扮�?
    */
   async getRandomPids(count: number = 10): Promise<string[]> {
     try {
-      // SQLite 浣跨敤 RANDOM() 鍑芥暟
+      // SQLite 浣跨�?RANDOM() 鍑芥�?
       const result = await this.client.execute({
         sql: 'SELECT pid FROM pic ORDER BY RANDOM() LIMIT ?',
         args: [count]
       });
 
       const pids = result.rows.map(row => row.pid as string);
-      console.log(`闅忔満鑾峰彇 ${pids.length} 涓?PID`);
+      console.log(`闅忔満鑾峰�?${pids.length} �?PID`);
       return pids;
     } catch (error) {
-      console.error('闅忔満鑾峰彇 PID 澶辫触:', error);
+      console.error('闅忔満鑾峰�?PID 澶辫�?', error);
       return [];
     }
   }
 
   /**
-   * 鏍规嵁鏍囩鑾峰彇 PID 鍒楄〃
-   * @param tags 鍖呭惈鐨勬爣绛?
-   * @param unsupportTags 鎺掗櫎鐨勬爣绛?
+   * 鏍规嵁鏍囩鑾峰�?PID 鍒楄�?
+   * @param tags 鍖呭惈鐨勬爣�?
+   * @param unsupportTags 鎺掗櫎鐨勬爣�?
    * @param limit 鏁伴噺闄愬埗
-   * @returns PID 鏁扮粍
+   * @returns PID 鏁扮�?
    */
   async getPicsByTags(tags: string[], unsupportTags: string[] = [], limit: number = 6): Promise<string[]> {
     try {
@@ -690,7 +745,7 @@ export class TursoService {
       const result = await this.client.execute({ sql, args });
       return result.rows.map(row => row.pid as string);
     } catch (error) {
-      console.error('鏍规嵁鏍囩鑾峰彇 PID 澶辫触:', error);
+      console.error('鏍规嵁鏍囩鑾峰�?PID 澶辫�?', error);
       return [];
     }
   }
@@ -706,6 +761,7 @@ export class TursoService {
   async getTopPreviewCandidatePids(limit: number = 120, minPopularity: number = 0): Promise<string[]> {
     const safeLimit = Math.max(1, Math.min(limit, 500));
     const safePopularity = Number.isFinite(minPopularity) ? minPopularity : 0;
+    const candidateScoreSql = this.buildEffectiveCandidateScoreExpression('p');
 
     try {
       const result = await this.client.execute({
@@ -722,7 +778,7 @@ export class TursoService {
               TRIM(p.image_path) = '' OR
               TRIM(p.image_path) = '[]'
             )
-          ORDER BY COALESCE(p.popularity, 0) DESC, COALESCE(p.view, 0) DESC
+          ORDER BY ${candidateScoreSql} DESC, COALESCE(p.popularity, 0) DESC, COALESCE(p.view, 0) DESC
           LIMIT ?
         `,
         args: [safePopularity, safeLimit]
@@ -730,7 +786,7 @@ export class TursoService {
 
       return result.rows.map(row => row.pid as string);
     } catch (error) {
-      console.error('鑾峰彇棰勮鍊欓€?PID 澶辫触:', error);
+      console.error('鑾峰彇棰勮鍊欓�?PID 澶辫�?', error);
       return [];
     }
   }
@@ -776,6 +832,58 @@ export class TursoService {
 
   private normalizeBoolean(value?: boolean): number {
     return value === false ? 0 : 1;
+  }
+
+
+  private chunkArray<T>(items: T[], size: number): T[][] {
+    const safeSize = Math.max(1, Math.floor(size));
+    const result: T[][] = [];
+    for (let index = 0; index < items.length; index += safeSize) {
+      result.push(items.slice(index, index + safeSize));
+    }
+    return result;
+  }
+
+  private buildCalculatedCandidateScoreExpression(picAlias: string = 'pic'): string {
+    const recentAtExpr = `COALESCE(${picAlias}.last_seen_at, ${picAlias}.upload_time, ${picAlias}.first_seen_at, ${picAlias}.created_at)`;
+
+    return `(
+      (MIN(COALESCE(${picAlias}.popularity, 0), 1.5) * 520.0) +
+      (MIN(COALESCE(${picAlias}.view, 0), 20000) / 20000.0 * 140.0) +
+      (MIN(COALESCE(${picAlias}.star, 0), 12000) / 12000.0 * 120.0) +
+      (MIN(COALESCE(${picAlias}.good, 0), 12000) / 12000.0 * 60.0) +
+      CASE
+        WHEN ${recentAtExpr} IS NULL OR TRIM(${recentAtExpr}) = '' THEN 0
+        WHEN (julianday('now') - julianday(${recentAtExpr})) <= 1 THEN 220
+        WHEN (julianday('now') - julianday(${recentAtExpr})) <= 3 THEN 180
+        WHEN (julianday('now') - julianday(${recentAtExpr})) <= 7 THEN 130
+        WHEN (julianday('now') - julianday(${recentAtExpr})) <= 14 THEN 90
+        WHEN (julianday('now') - julianday(${recentAtExpr})) <= 30 THEN 50
+        ELSE 15
+      END +
+      CASE COALESCE(${picAlias}.last_source_type, '')
+        WHEN 'ranking_daily' THEN 160
+        WHEN 'ranking_weekly' THEN 120
+        WHEN 'home' THEN 100
+        WHEN 'tag_watch' THEN 110
+        WHEN 'artist_watch' THEN 105
+        WHEN 'manual' THEN 95
+        WHEN 'illust_recommend' THEN 75
+        WHEN 'author_recommend' THEN 65
+        WHEN 'ranking_monthly' THEN 55
+        ELSE 20
+      END
+    )`;
+  }
+
+  private buildEffectiveCandidateScoreExpression(picAlias: string = 'pic'): string {
+    const calculated = this.buildCalculatedCandidateScoreExpression(picAlias);
+    return `(CASE WHEN COALESCE(${picAlias}.candidate_score, 0) > 0 THEN COALESCE(${picAlias}.candidate_score, 0) ELSE ${calculated} END)`;
+  }
+
+  private buildDownloadCandidatePriorityExpression(taskAlias: string = 't', picAlias: string = 'p'): string {
+    const effectiveScore = this.buildEffectiveCandidateScoreExpression(picAlias);
+    return `MAX(COALESCE(${taskAlias}.priority, 0), CAST(ROUND(${effectiveScore}) AS INTEGER))`;
   }
 
   private normalizeArchivePaths(paths: Array<string | null | undefined>): string[] {
@@ -953,10 +1061,10 @@ export class TursoService {
           sql: `
             INSERT INTO pic (
               pid, tag, good, star, view, image_path, image_url, popularity,
-              first_seen_at, last_seen_at, last_source_type, download_stage, image_variants,
+              first_seen_at, last_seen_at, last_source_type, download_stage, image_variants, candidate_score,
               created_at, updated_at
             )
-            VALUES (?, '', 0, 0, 0, '', '', 0, ?, ?, ?, 'none', '{}', ?, ?)
+            VALUES (?, '', 0, 0, 0, '', '', 0, ?, ?, ?, 'none', '{}', 0, ?, ?)
             ON CONFLICT(pid) DO UPDATE SET
               last_seen_at = CASE
                 WHEN excluded.last_seen_at > COALESCE(pic.last_seen_at, '')
@@ -980,6 +1088,10 @@ export class TursoService {
           ]
         }))
       );
+
+      await this.refreshCandidateScores({
+        pids: Array.from(new Set(Array.from(deduped.values()).map(source => source.pid)))
+      });
     } catch (error) {
       console.error('batch upsert pic_source failed:', error);
       throw error;
@@ -1162,7 +1274,7 @@ export class TursoService {
   // pic_task 琛ㄦ搷浣?  // ========================================
 
   /**
-   * 鍒涘缓鎴栨洿鏂?pic_task 璁板綍
+   * 鍒涘缓鎴栨洿�?pic_task 璁板�?
    * @param pid 鍥剧墖ID
    */
   async createOrUpdatePicTask(pid: string, options?: PicTaskUpsertOptions): Promise<void> {
@@ -1343,7 +1455,7 @@ export class TursoService {
   /**
    * 获取 pic_task 记录
    * @param pid 图片ID
-   * @returns PicTask 或 null
+   * @returns PicTask �?null
    */
   async getPicTask(pid: string): Promise<PicTask | null> {
     try {
@@ -1381,9 +1493,9 @@ export class TursoService {
         args: [now, count, now, pid]
       });
 
-      console.log('更新插画推荐状态完成:', { pid, count });
+      console.log('更新插画推荐状态完�?', { pid, count });
     } catch (error) {
-      console.error('更新插画推荐状态失败:', error);
+      console.error('更新插画推荐状态失�?', error);
       throw error;
     }
   }
@@ -1406,9 +1518,9 @@ export class TursoService {
         args: [now, count, now, pid]
       });
 
-      console.log('更新作者推荐状态完成:', { pid, count });
+      console.log('更新作者推荐状态完�?', { pid, count });
     } catch (error) {
-      console.error('更新作者推荐状态失败:', error);
+      console.error('更新作者推荐状态失�?', error);
       throw error;
     }
   }
@@ -1430,9 +1542,9 @@ export class TursoService {
         args: [now, now, pid]
       });
 
-      console.log('更新详情信息状态完成:', { pid });
+      console.log('更新详情信息状态完�?', { pid });
     } catch (error) {
-      console.error('更新详情信息状态失败:', error);
+      console.error('更新详情信息状态失�?', error);
       throw error;
     }
   }
@@ -1461,7 +1573,7 @@ export class TursoService {
 
       return result.rows.map(row => row.pid as string);
     } catch (error) {
-      console.error('获取未完成任务失败:', error);
+      console.error('获取未完成任务失�?', error);
       return [];
     }
   }
@@ -1695,6 +1807,8 @@ export class TursoService {
 
     const sourcePlaceholders = sourceTypes.map(() => '?').join(', ');
     const args: Array<string | number> = [...sourceTypes, since, minPopularity];
+    const candidateScoreSql = this.buildEffectiveCandidateScoreExpression('p');
+    const prioritySql = this.buildDownloadCandidatePriorityExpression('t', 'p');
     let excludeSql = '';
     if (excludePids.length > 0) {
       excludeSql = ` AND p.pid NOT IN (${excludePids.map(() => '?').join(', ')})`;
@@ -1722,10 +1836,11 @@ export class TursoService {
           )
           SELECT
             p.pid,
-            COALESCE(t.priority, 0) AS priority,
-            matched_source.source_type AS source_type,
+            ${prioritySql} AS priority,
+            ROUND(${candidateScoreSql}, 4) AS candidate_score,
+            COALESCE(matched_source.source_type, p.last_source_type, 'unknown') AS source_type,
             matched_source.source_key AS source_key,
-            matched_source.discovered_at AS source_recent_at,
+            COALESCE(matched_source.discovered_at, p.last_seen_at, p.first_seen_at) AS source_recent_at,
             COALESCE(p.popularity, 0) AS popularity,
             COALESCE(p.view, 0) AS view
           FROM matched_source
@@ -1745,15 +1860,16 @@ export class TursoService {
               SELECT 1
               FROM download_job j
               WHERE j.pid = p.pid
-                AND j.job_type = 'preview'
+                AND j.job_type IN ('preview', 'backfill')
                 AND j.status IN ('pending', 'running', 'success')
             )
             ${excludeSql}
           ORDER BY
-            COALESCE(t.priority, 0) DESC,
+            candidate_score DESC,
+            ${prioritySql} DESC,
             COALESCE(p.popularity, 0) DESC,
             COALESCE(p.view, 0) DESC,
-            matched_source.discovered_at DESC
+            COALESCE(matched_source.discovered_at, p.last_seen_at, p.first_seen_at, p.created_at) DESC
           LIMIT ?
         `,
         args
@@ -1762,6 +1878,7 @@ export class TursoService {
       return result.rows.map(row => ({
         pid: row.pid as string,
         priority: Number(row.priority) || 0,
+        candidateScore: Number(row.candidate_score) || 0,
         sourceType: row.source_type as string,
         sourceKey: row.source_key as string | undefined,
         sourceRecentAt: row.source_recent_at as string | undefined,
@@ -1770,6 +1887,93 @@ export class TursoService {
       }));
     } catch (error) {
       console.error('query recent preview candidates failed:', error);
+      return [];
+    }
+  }
+
+  async getBackfillPreviewCandidates(
+    limit: number,
+    minPopularity: number,
+    minAgeDays: number
+  ): Promise<BackfillPreviewCandidate[]> {
+    const safeLimit = Math.max(1, Math.min(limit, 500));
+    const safePopularity = Number.isFinite(minPopularity) ? minPopularity : 0;
+    const safeMinAgeDays = Math.max(1, Math.floor(minAgeDays));
+    const candidateScoreSql = this.buildEffectiveCandidateScoreExpression('p');
+    const prioritySql = this.buildDownloadCandidatePriorityExpression('t', 'p');
+    const recentAtExpr = `COALESCE(p.last_seen_at, p.upload_time, p.first_seen_at, p.created_at)`;
+
+    try {
+      const result = await this.client.execute({
+        sql: `
+          WITH latest_source AS (
+            SELECT
+              s.pid,
+              s.source_type,
+              s.source_key,
+              s.discovered_at,
+              ROW_NUMBER() OVER (
+                PARTITION BY s.pid
+                ORDER BY COALESCE(s.discovered_at, s.created_at) DESC, s.id DESC
+              ) AS rn
+            FROM pic_source s
+          )
+          SELECT
+            p.pid,
+            ${prioritySql} AS priority,
+            ROUND(${candidateScoreSql}, 4) AS candidate_score,
+            COALESCE(latest_source.source_type, p.last_source_type, 'backfill') AS source_type,
+            latest_source.source_key AS source_key,
+            COALESCE(latest_source.discovered_at, p.last_seen_at, p.first_seen_at, p.created_at) AS source_recent_at,
+            COALESCE(p.popularity, 0) AS popularity,
+            COALESCE(p.view, 0) AS view
+          FROM pic p
+          INNER JOIN pic_task t ON t.pid = p.pid
+          LEFT JOIN latest_source
+            ON latest_source.pid = p.pid
+           AND latest_source.rn = 1
+          WHERE p.unfit = 0
+            AND COALESCE(p.popularity, 0) >= ?
+            AND t.detail_info_crawled = 1
+            AND ${recentAtExpr} IS NOT NULL
+            AND TRIM(${recentAtExpr}) <> ''
+            AND (julianday('now') - julianday(${recentAtExpr})) >= ?
+            AND (
+              COALESCE(p.download_stage, 'none') = 'none' OR
+              p.image_path IS NULL OR
+              TRIM(p.image_path) = '' OR
+              TRIM(p.image_path) = '[]'
+            )
+            AND NOT EXISTS (
+              SELECT 1
+              FROM download_job j
+              WHERE j.pid = p.pid
+                AND j.job_type IN ('preview', 'backfill')
+                AND j.status IN ('pending', 'running', 'success')
+            )
+          ORDER BY
+            candidate_score DESC,
+            ${prioritySql} DESC,
+            COALESCE(p.popularity, 0) DESC,
+            COALESCE(p.view, 0) DESC,
+            COALESCE(p.last_seen_at, p.first_seen_at, p.created_at, '') DESC
+          LIMIT ?
+        `,
+        args: [safePopularity, safeMinAgeDays, safeLimit]
+      });
+
+      return result.rows.map(row => ({
+        pid: row.pid as string,
+        priority: Number(row.priority) || 0,
+        candidateScore: Number(row.candidate_score) || 0,
+        sourceType: row.source_type as string,
+        sourceKey: row.source_key as string | undefined,
+        sourceRecentAt: row.source_recent_at as string | undefined,
+        popularity: Number(row.popularity) || 0,
+        view: Number(row.view) || 0
+      }));
+    } catch (error) {
+      console.error('query backfill preview candidates failed:', error);
       return [];
     }
   }
@@ -1938,7 +2142,7 @@ export class TursoService {
   // ========================================
 
   /**
-   * 灏嗘暟鎹簱琛岃浆鎹负 DatabasePic 瀵硅薄
+   * 灏嗘暟鎹簱琛岃浆鎹负 DatabasePic 瀵硅�?
    */
   private rowToDatabasePic(row: any): DatabasePic {
     return {
@@ -1965,12 +2169,15 @@ export class TursoService {
       download_stage: (row.download_stage as DatabasePic['download_stage']) || 'none',
       preview_downloaded_at: row.preview_downloaded_at as string | undefined,
       full_downloaded_at: row.full_downloaded_at as string | undefined,
-      image_variants: row.image_variants as string | undefined
+      image_variants: row.image_variants as string | undefined,
+      candidate_score: row.candidate_score === null || row.candidate_score === undefined
+        ? undefined
+        : Number(row.candidate_score)
     };
   }
 
   /**
-   * 灏嗘暟鎹簱琛岃浆鎹负 PicTask 瀵硅薄
+   * 灏嗘暟鎹簱琛岃浆鎹负 PicTask 瀵硅�?
    */
   private rowToPicTask(row: any): PicTask {
     return {
@@ -2043,13 +2250,13 @@ export class TursoService {
   }
 
   /**
-   * 鍚屾鏈湴鍓湰 (鐢ㄤ簬 Local Read Replica 妯″紡)
+   * 鍚屾鏈湴鍓湰 (鐢ㄤ�?Local Read Replica 妯″紡)
    * 鍦ㄤ笢浜湇鍔″櫒涓婂畾鏈熻皟鐢ㄤ互淇濇寔鏁版嵁鍚屾
    */
   async sync(): Promise<void> {
     try {
-      // @libsql/client 浼氳嚜鍔ㄥ鐞嗗悓姝ワ紝杩欓噷鍙槸鏄惧紡瑙﹀彂
-      console.log('瑙﹀彂 Turso 鏈湴鍓湰鍚屾...');
+      // @libsql/client 浼氳嚜鍔ㄥ鐞嗗悓姝ワ紝杩欓噷鍙槸鏄惧紡瑙﹀�?
+      console.log('瑙﹀�?Turso 鏈湴鍓湰鍚屾�?..');
       // 鎵ц涓€涓交閲忔煡璇㈡潵瑙﹀彂鍚屾
       await this.client.execute('SELECT 1');
       console.log('Turso sync complete');

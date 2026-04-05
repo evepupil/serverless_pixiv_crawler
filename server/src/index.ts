@@ -626,7 +626,9 @@ async function handleGetAction(
             '{action:"upsert-watch-target",targetType,targetValue,bizType,priority,windowDays,dailyPreviewQuota,enabled}',
             '{action:"delete-watch-target",id}',
             '{action:"collect-watch-targets",limitTargets,perTargetLimit,targetIds:[...]}',
+            '{action:"refresh-candidate-score",limit,pids:[...]}',
             '{action:"auto-topn-preview",limit,minPopularity,sizes,dryRun}',
+            '{action:"run-backfill-preview",limit,minPopularity,minAgeDays,sizes,dryRun}',
             '{action:"enqueue-full-download",pids:[...],sizes:[...],priority,sourceType,sourceKey,runNow}',
             '{action:"run-full-download",limit}',
             '{action:"reconcile-storage",limit,pids:[...],dryRun}',
@@ -925,6 +927,25 @@ async function handlePostAction(body: Record<string, any>, res: http.ServerRespo
       return;
     }
 
+    case 'refresh-candidate-score': {
+      const defaultLimit = parseInt(process.env.CANDIDATE_SCORE_REFRESH_LIMIT || '200', 10);
+      const limit = parseBoundedInt(body.limit, defaultLimit, 1, 2000);
+      const pids = parsePidList(body.pids ?? body.pid);
+      const updatedCount = await db.refreshCandidateScores({
+        pids: pids.length > 0 ? pids : undefined,
+        limit
+      });
+
+      sendJson(res, 200, {
+        success: true,
+        limit,
+        updatedCount,
+        pidCount: pids.length,
+        timestamp: new Date().toISOString()
+      });
+      return;
+    }
+
     case 'auto-topn-preview': {
       const defaultLimit = parseInt(process.env.AUTO_PREVIEW_DEFAULT_LIMIT || '120', 10);
       const defaultMinPopularity = parseFloat(process.env.AUTO_PREVIEW_MIN_POPULARITY || '0');
@@ -978,6 +999,7 @@ async function handlePostAction(body: Record<string, any>, res: http.ServerRespo
         candidatePreview: candidates.slice(0, 20).map(item => ({
           pid: item.pid,
           priority: item.priority,
+          candidateScore: item.candidateScore,
           sourceType: item.sourceType,
           sourceRecentAt: item.sourceRecentAt,
           popularity: item.popularity,
@@ -991,6 +1013,74 @@ async function handlePostAction(body: Record<string, any>, res: http.ServerRespo
       }
 
       runDownloadJobWorker(taskId, 'auto preview jobs', claimedJobs, db);
+      return;
+    }
+
+    case 'run-backfill-preview': {
+      const defaultLimit = parseInt(process.env.BACKFILL_PREVIEW_DEFAULT_LIMIT || process.env.SCHEDULER_BACKFILL_PREVIEW_LIMIT || '30', 10);
+      const defaultMinPopularity = parseFloat(process.env.BACKFILL_PREVIEW_MIN_POPULARITY || '0');
+      const defaultMinAgeDays = parseInt(process.env.BACKFILL_PREVIEW_MIN_AGE_DAYS || '30', 10);
+      const defaultSizes = parseSizeList(
+        process.env.BACKFILL_PREVIEW_SIZES || process.env.BACKFILL_PREVIEW_SIZE || 'thumb_mini,small',
+        ['thumb_mini', 'small']
+      );
+
+      const limit = parseBoundedInt(body.limit, defaultLimit, 1, 500);
+      const minPopularity = Number.isFinite(Number(body.minPopularity))
+        ? Number(body.minPopularity)
+        : defaultMinPopularity;
+      const minAgeDays = parseBoundedInt(body.minAgeDays, defaultMinAgeDays, 1, 3650);
+      const sizes = parseSizeList(body.sizes ?? body.size, defaultSizes);
+      const dryRun = parseBooleanLike(body.dryRun);
+      const taskId = `run_backfill_preview_${Date.now()}`;
+      const candidates = await db.getBackfillPreviewCandidates(limit, minPopularity, minAgeDays);
+
+      let enqueuedCount = 0;
+      let claimedJobs = [] as ClaimedDownloadJob[];
+
+      if (!dryRun && candidates.length > 0) {
+        enqueuedCount = await db.enqueueDownloadJobs(
+          candidates.map(candidate => ({
+            pid: candidate.pid,
+            jobType: 'backfill' as const,
+            requestedSizes: sizes,
+            priority: candidate.priority,
+            sourceType: candidate.sourceType || 'backfill',
+            sourceKey: candidate.sourceKey,
+            maxAttempts: 3
+          }))
+        );
+        claimedJobs = await db.claimPendingDownloadJobs('backfill', limit);
+      }
+
+      sendJson(res, 200, {
+        success: true,
+        taskId,
+        dryRun,
+        limit,
+        minPopularity,
+        minAgeDays,
+        sizes,
+        candidateCount: candidates.length,
+        enqueuedCount,
+        claimedCount: claimedJobs.length,
+        candidatePreview: candidates.slice(0, 20).map(item => ({
+          pid: item.pid,
+          priority: item.priority,
+          candidateScore: item.candidateScore,
+          sourceType: item.sourceType,
+          sourceRecentAt: item.sourceRecentAt,
+          popularity: item.popularity,
+          view: item.view
+        })),
+        timestamp: new Date().toISOString()
+      });
+
+      if (dryRun || claimedJobs.length === 0) {
+        return;
+      }
+
+      runDownloadJobWorker(taskId, 'backfill preview jobs', claimedJobs, db);
       return;
     }
 

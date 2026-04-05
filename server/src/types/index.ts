@@ -133,6 +133,7 @@ export interface DatabasePic {
   preview_downloaded_at?: string;
   full_downloaded_at?: string;
   image_variants?: string;
+  candidate_score?: number;
 }
 
 // pic_task 表类型定义

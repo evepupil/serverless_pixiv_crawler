@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS pic (
     preview_downloaded_at TEXT,
     full_downloaded_at TEXT,
     image_variants TEXT DEFAULT '{}',
+    candidate_score REAL DEFAULT 0,
     created_at TEXT,
     updated_at TEXT
 );
@@ -35,6 +36,7 @@ CREATE INDEX IF NOT EXISTS idx_pic_download_time ON pic(download_time);
 CREATE INDEX IF NOT EXISTS idx_pic_unfit ON pic(unfit);
 CREATE INDEX IF NOT EXISTS idx_pic_download_stage ON pic(download_stage);
 CREATE INDEX IF NOT EXISTS idx_pic_last_seen ON pic(last_seen_at);
+CREATE INDEX IF NOT EXISTS idx_pic_candidate_score ON pic(candidate_score);
 
 CREATE TABLE IF NOT EXISTS pic_task (
     pid TEXT PRIMARY KEY,

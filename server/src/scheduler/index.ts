@@ -63,6 +63,20 @@ function getSchedulerConfig() {
     ),
     autoPreviewEnabled: parseBool(process.env.SCHEDULER_AUTO_PREVIEW_ENABLED, true),
 
+    backfillPreviewInterval: minuteToMs(parseInt(process.env.SCHEDULER_BACKFILL_PREVIEW_INTERVAL || '1440')),
+    backfillPreviewLimit: parseInt(process.env.SCHEDULER_BACKFILL_PREVIEW_LIMIT || process.env.BACKFILL_PREVIEW_DEFAULT_LIMIT || '30'),
+    backfillPreviewMinPopularity: parseFloat(process.env.SCHEDULER_BACKFILL_PREVIEW_MIN_POPULARITY || process.env.BACKFILL_PREVIEW_MIN_POPULARITY || '0'),
+    backfillPreviewMinAgeDays: parseInt(process.env.SCHEDULER_BACKFILL_PREVIEW_MIN_AGE_DAYS || process.env.BACKFILL_PREVIEW_MIN_AGE_DAYS || '30'),
+    backfillPreviewSizes: parseSizeList(
+      process.env.SCHEDULER_BACKFILL_PREVIEW_SIZES ||
+        process.env.BACKFILL_PREVIEW_SIZES ||
+        process.env.SCHEDULER_BACKFILL_PREVIEW_SIZE ||
+        process.env.BACKFILL_PREVIEW_SIZE ||
+        'thumb_mini,small',
+      ['thumb_mini', 'small']
+    ),
+    backfillPreviewEnabled: parseBool(process.env.SCHEDULER_BACKFILL_PREVIEW_ENABLED, false),
+
     fullDownloadInterval: minuteToMs(parseInt(process.env.SCHEDULER_FULL_DOWNLOAD_INTERVAL || '5')),
     fullDownloadLimit: parseInt(process.env.SCHEDULER_FULL_DOWNLOAD_LIMIT || process.env.FULL_DOWNLOAD_DEFAULT_LIMIT || '30'),
     fullDownloadEnabled: parseBool(process.env.SCHEDULER_FULL_DOWNLOAD_ENABLED, true),
@@ -190,6 +204,20 @@ export class TaskScheduler {
           sizes: config.autoPreviewSizes
         },
         enabled: config.autoPreviewEnabled
+      },
+      {
+        name: 'Backfill Preview Worker',
+        action: 'run-backfill-preview',
+        method: 'POST',
+        interval: config.backfillPreviewInterval,
+        body: {
+          action: 'run-backfill-preview',
+          limit: config.backfillPreviewLimit,
+          minPopularity: config.backfillPreviewMinPopularity,
+          minAgeDays: config.backfillPreviewMinAgeDays,
+          sizes: config.backfillPreviewSizes
+        },
+        enabled: config.backfillPreviewEnabled
       },
       {
         name: 'Full Download Queue Worker',

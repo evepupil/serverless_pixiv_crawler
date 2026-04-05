@@ -32,6 +32,7 @@ export const pic = sqliteTable('pic', {
   previewDownloadedAt: text('preview_downloaded_at'),
   fullDownloadedAt: text('full_downloaded_at'),
   imageVariants: text('image_variants').default('{}'),
+  candidateScore: real('candidate_score').default(0),
   createdAt: text('created_at'),
   updatedAt: text('updated_at')
 }, table => [
@@ -40,7 +41,8 @@ export const pic = sqliteTable('pic', {
   index('idx_pic_download_time').on(table.downloadTime),
   index('idx_pic_unfit').on(table.unfit),
   index('idx_pic_download_stage').on(table.downloadStage),
-  index('idx_pic_last_seen').on(table.lastSeenAt)
+  index('idx_pic_last_seen').on(table.lastSeenAt),
+  index('idx_pic_candidate_score').on(table.candidateScore)
 ]);
 
 export const picTask = sqliteTable('pic_task', {
