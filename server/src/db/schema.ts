@@ -74,6 +74,25 @@ export const ranking = sqliteTable('ranking', {
   index('idx_ranking_pid').on(table.pid)
 ]);
 
+export const picSource = sqliteTable('pic_source', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  pid: text('pid').notNull(),
+  sourceType: text('source_type').notNull(),
+  sourceKey: text('source_key').notNull(),
+  bizType: text('biz_type'),
+  rankValue: integer('rank_value'),
+  sourceScore: real('source_score'),
+  meta: text('meta'),
+  discoveredAt: text('discovered_at').notNull(),
+  createdAt: text('created_at'),
+  updatedAt: text('updated_at')
+}, table => [
+  uniqueIndex('pic_source_pid_type_key_unique').on(table.pid, table.sourceType, table.sourceKey),
+  index('idx_pic_source_pid').on(table.pid),
+  index('idx_pic_source_type_recent').on(table.sourceType, table.discoveredAt),
+  index('idx_pic_source_biz_recent').on(table.bizType, table.discoveredAt)
+]);
+
 export const downloadJob = sqliteTable('download_job', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   pid: text('pid').notNull(),
@@ -100,6 +119,7 @@ export const schema = {
   pic,
   picTask,
   ranking,
+  picSource,
   downloadJob
 };
 
@@ -109,5 +129,7 @@ export type PicTaskRow = typeof picTask.$inferSelect;
 export type NewPicTaskRow = typeof picTask.$inferInsert;
 export type RankingRow = typeof ranking.$inferSelect;
 export type NewRankingRow = typeof ranking.$inferInsert;
+export type PicSourceRow = typeof picSource.$inferSelect;
+export type NewPicSourceRow = typeof picSource.$inferInsert;
 export type DownloadJobRow = typeof downloadJob.$inferSelect;
 export type NewDownloadJobRow = typeof downloadJob.$inferInsert;

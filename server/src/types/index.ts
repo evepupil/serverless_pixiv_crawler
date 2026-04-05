@@ -150,6 +150,20 @@ export interface PicTask {
   updated_at?: string;
 }
 
+export interface PicSource {
+  id: number;
+  pid: string;
+  source_type: string;
+  source_key: string;
+  biz_type?: string;
+  rank_value?: number;
+  source_score?: number;
+  meta?: string;
+  discovered_at: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface DownloadJob {
   id: number;
   pid: string;

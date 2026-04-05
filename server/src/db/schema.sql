@@ -67,6 +67,25 @@ CREATE TABLE IF NOT EXISTS ranking (
 CREATE INDEX IF NOT EXISTS idx_ranking_type_date ON ranking(rank_type, rank_date);
 CREATE INDEX IF NOT EXISTS idx_ranking_pid ON ranking(pid);
 
+CREATE TABLE IF NOT EXISTS pic_source (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pid TEXT NOT NULL,
+    source_type TEXT NOT NULL,
+    source_key TEXT NOT NULL,
+    biz_type TEXT,
+    rank_value INTEGER,
+    source_score REAL,
+    meta TEXT,
+    discovered_at TEXT NOT NULL,
+    created_at TEXT,
+    updated_at TEXT,
+    UNIQUE(pid, source_type, source_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_pic_source_pid ON pic_source(pid);
+CREATE INDEX IF NOT EXISTS idx_pic_source_type_recent ON pic_source(source_type, discovered_at);
+CREATE INDEX IF NOT EXISTS idx_pic_source_biz_recent ON pic_source(biz_type, discovered_at);
+
 CREATE TABLE IF NOT EXISTS download_job (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     pid TEXT NOT NULL,

@@ -5,12 +5,24 @@ import { createLibsqlClient, getSharedLibsqlClient } from './client';
 type TaskType = 'illust_recommend' | 'author_recommend' | 'detail_info';
 type RankingSourceType = 'ranking_daily' | 'ranking_weekly' | 'ranking_monthly';
 export type PicTaskSourceType = 'unknown' | 'home' | 'illust_recommend' | 'author_recommend' | 'manual' | RankingSourceType;
+export type PicSourceType = Exclude<PicTaskSourceType, 'unknown'>;
 
 export interface PicTaskUpsertOptions {
   priority?: number;
   sourceType?: PicTaskSourceType;
   sourceKey?: string;
   sourceRecentAt?: string;
+}
+
+export interface PicSourceUpsertInput {
+  pid: string;
+  sourceType: PicSourceType;
+  sourceKey: string;
+  discoveredAt?: string;
+  bizType?: string;
+  rankValue?: number;
+  sourceScore?: number;
+  meta?: string;
 }
 
 export interface RecentPreviewWindowConfig {
@@ -562,6 +574,130 @@ export class TursoService {
     return new Date(Date.now() + delayMs).toISOString().slice(0, 19).replace('T', ' ');
   }
 
+  private normalizeText(value?: string | null): string | null {
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    return trimmed ? trimmed : null;
+  }
+
+  private normalizeInteger(value?: number): number | null {
+    if (!Number.isFinite(value)) return null;
+    return Math.floor(value as number);
+  }
+
+  private normalizeReal(value?: number): number | null {
+    if (!Number.isFinite(value)) return null;
+    return Number(value);
+  }
+
+  private isPersistableSourceType(value?: string | null): value is PicSourceType {
+    return Boolean(value && value !== 'unknown');
+  }
+
+  async upsertPicSource(source: PicSourceUpsertInput): Promise<void> {
+    await this.batchUpsertPicSources([source]);
+  }
+
+  async batchUpsertPicSources(sources: PicSourceUpsertInput[]): Promise<void> {
+    if (!sources.length) return;
+
+    const now = this.now();
+    const deduped = new Map<string, {
+      pid: string;
+      sourceType: PicSourceType;
+      sourceKey: string;
+      discoveredAt: string;
+      bizType: string | null;
+      rankValue: number | null;
+      sourceScore: number | null;
+      meta: string | null;
+    }>();
+
+    for (const source of sources) {
+      const pid = this.normalizeText(source.pid);
+      const sourceType = this.normalizeText(source.sourceType);
+      const sourceKey = this.normalizeText(source.sourceKey);
+      if (!pid || !sourceType || !sourceKey || !this.isPersistableSourceType(sourceType)) {
+        continue;
+      }
+
+      const normalizedSource = {
+        pid,
+        sourceType,
+        sourceKey,
+        discoveredAt: this.normalizeSourceRecentAt(source.discoveredAt) || now,
+        bizType: this.normalizeText(source.bizType),
+        rankValue: this.normalizeInteger(source.rankValue),
+        sourceScore: this.normalizeReal(source.sourceScore),
+        meta: this.normalizeText(source.meta)
+      };
+
+      const dedupeKey = `${pid}::${sourceType}::${sourceKey}`;
+      const existing = deduped.get(dedupeKey);
+      if (!existing) {
+        deduped.set(dedupeKey, normalizedSource);
+        continue;
+      }
+
+      deduped.set(dedupeKey, {
+        pid,
+        sourceType,
+        sourceKey,
+        discoveredAt: normalizedSource.discoveredAt >= existing.discoveredAt
+          ? normalizedSource.discoveredAt
+          : existing.discoveredAt,
+        bizType: normalizedSource.bizType || existing.bizType,
+        rankValue: normalizedSource.rankValue ?? existing.rankValue,
+        sourceScore: normalizedSource.sourceScore ?? existing.sourceScore,
+        meta: normalizedSource.meta || existing.meta
+      });
+    }
+
+    if (deduped.size === 0) {
+      return;
+    }
+
+    try {
+      await this.client.batch(
+        Array.from(deduped.values()).map(source => ({
+          sql: `
+            INSERT INTO pic_source (
+              pid, source_type, source_key, biz_type, rank_value,
+              source_score, meta, discovered_at, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(pid, source_type, source_key) DO UPDATE SET
+              biz_type = COALESCE(excluded.biz_type, pic_source.biz_type),
+              rank_value = COALESCE(excluded.rank_value, pic_source.rank_value),
+              source_score = COALESCE(excluded.source_score, pic_source.source_score),
+              meta = COALESCE(excluded.meta, pic_source.meta),
+              discovered_at = CASE
+                WHEN excluded.discovered_at > COALESCE(pic_source.discovered_at, '')
+                THEN excluded.discovered_at
+                ELSE pic_source.discovered_at
+              END,
+              updated_at = excluded.updated_at
+          `,
+          args: [
+            source.pid,
+            source.sourceType,
+            source.sourceKey,
+            source.bizType,
+            source.rankValue,
+            source.sourceScore,
+            source.meta,
+            source.discoveredAt,
+            now,
+            now
+          ]
+        }))
+      );
+    } catch (error) {
+      console.error('batch upsert pic_source failed:', error);
+      throw error;
+    }
+  }
+
   // ========================================
   // pic_task 琛ㄦ搷浣?  // ========================================
 
@@ -573,7 +709,7 @@ export class TursoService {
     const now = this.now();
     const priority = this.buildPicTaskPriorityValue(options?.priority);
     const sourceType = options?.sourceType || 'unknown';
-    const sourceKey = options?.sourceKey || null;
+    const sourceKey = this.normalizeText(options?.sourceKey);
     const sourceRecentAt = this.normalizeSourceRecentAt(options?.sourceRecentAt);
 
     try {
@@ -626,6 +762,15 @@ export class TursoService {
         });
       }
 
+      if (this.isPersistableSourceType(sourceType) && sourceKey) {
+        await this.upsertPicSource({
+          pid,
+          sourceType,
+          sourceKey,
+          discoveredAt: sourceRecentAt || now
+        });
+      }
+
       console.log('create/update pic_task done:', { pid, priority, sourceType, sourceRecentAt });
     } catch (error) {
       console.error('create/update pic_task failed:', error);
@@ -640,7 +785,7 @@ export class TursoService {
     const now = this.now();
     const priority = this.buildPicTaskPriorityValue(options?.priority);
     const sourceType = options?.sourceType || 'unknown';
-    const sourceKey = options?.sourceKey || null;
+    const sourceKey = this.normalizeText(options?.sourceKey);
     const sourceRecentAt = this.normalizeSourceRecentAt(options?.sourceRecentAt);
 
     try {
@@ -696,6 +841,18 @@ export class TursoService {
       });
 
       await this.client.batch(statements);
+
+      if (this.isPersistableSourceType(sourceType) && sourceKey) {
+        await this.batchUpsertPicSources(
+          uniquePids.map(pid => ({
+            pid,
+            sourceType,
+            sourceKey,
+            discoveredAt: sourceRecentAt || now
+          }))
+        );
+      }
+
       console.log('batch create pic_task done:', { count: uniquePids.length, priority, sourceType });
     } catch (error) {
       console.error('batch create pic_task failed:', error);
@@ -920,6 +1077,17 @@ export class TursoService {
       }));
 
       await this.client.batch(statements);
+      await this.batchUpsertPicSources(
+        items.map(item => ({
+          pid: item.pid,
+          sourceType,
+          sourceKey: `${type}:${rankDate}`,
+          discoveredAt: sourceRecentAt,
+          bizType: 'ranking',
+          rankValue: item.rank,
+          sourceScore: getPriority(item.rank)
+        }))
+      );
       console.log('enqueue ranking tasks done:', { type, rankDate, count: items.length });
     } catch (error) {
       console.error('enqueue ranking tasks failed:', error);
@@ -1042,7 +1210,7 @@ export class TursoService {
       .replace('T', ' ');
 
     const sourcePlaceholders = sourceTypes.map(() => '?').join(', ');
-    const args: Array<string | number> = [minPopularity, ...sourceTypes, since];
+    const args: Array<string | number> = [...sourceTypes, since, minPopularity];
     let excludeSql = '';
     if (excludePids.length > 0) {
       excludeSql = ` AND p.pid NOT IN (${excludePids.map(() => '?').join(', ')})`;
@@ -1054,21 +1222,35 @@ export class TursoService {
     try {
       const result = await this.client.execute({
         sql: `
+          WITH matched_source AS (
+            SELECT
+              s.pid,
+              s.source_type,
+              s.source_key,
+              s.discovered_at,
+              ROW_NUMBER() OVER (
+                PARTITION BY s.pid
+                ORDER BY COALESCE(s.discovered_at, s.created_at) DESC, s.id DESC
+              ) AS rn
+            FROM pic_source s
+            WHERE s.source_type IN (${sourcePlaceholders})
+              AND COALESCE(s.discovered_at, s.created_at) >= ?
+          )
           SELECT
             p.pid,
             COALESCE(t.priority, 0) AS priority,
-            COALESCE(t.task_source_type, 'unknown') AS source_type,
-            t.task_source_key AS source_key,
-            t.source_recent_at AS source_recent_at,
+            matched_source.source_type AS source_type,
+            matched_source.source_key AS source_key,
+            matched_source.discovered_at AS source_recent_at,
             COALESCE(p.popularity, 0) AS popularity,
             COALESCE(p.view, 0) AS view
-          FROM pic p
+          FROM matched_source
+          INNER JOIN pic p ON p.pid = matched_source.pid
           INNER JOIN pic_task t ON t.pid = p.pid
-          WHERE p.unfit = 0
+          WHERE matched_source.rn = 1
+            AND p.unfit = 0
             AND COALESCE(p.popularity, 0) >= ?
             AND t.detail_info_crawled = 1
-            AND COALESCE(t.task_source_type, 'unknown') IN (${sourcePlaceholders})
-            AND COALESCE(t.source_recent_at, t.created_at, p.updated_at, p.created_at) >= ?
             AND (
               p.image_path IS NULL OR
               TRIM(p.image_path) = '' OR
@@ -1086,7 +1268,7 @@ export class TursoService {
             COALESCE(t.priority, 0) DESC,
             COALESCE(p.popularity, 0) DESC,
             COALESCE(p.view, 0) DESC,
-            COALESCE(t.source_recent_at, t.created_at) DESC
+            matched_source.discovered_at DESC
           LIMIT ?
         `,
         args
