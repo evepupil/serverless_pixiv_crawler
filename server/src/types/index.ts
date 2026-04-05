@@ -164,6 +164,21 @@ export interface PicSource {
   updated_at?: string;
 }
 
+export interface WatchTarget {
+  id: number;
+  target_type: 'tag' | 'artist';
+  target_value: string;
+  biz_type: string;
+  priority?: number;
+  window_days?: number;
+  daily_preview_quota?: number;
+  enabled?: boolean;
+  last_run_at?: string;
+  meta?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface DownloadJob {
   id: number;
   pid: string;

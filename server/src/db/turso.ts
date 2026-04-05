@@ -1,10 +1,19 @@
 import { type Client } from '@libsql/client';
-import { DatabasePic, DownloadJob, PicTask, PixivDailyRankItem } from '../types';
+import { DatabasePic, DownloadJob, PicTask, PixivDailyRankItem, WatchTarget } from '../types';
 import { createLibsqlClient, getSharedLibsqlClient } from './client';
 
 type TaskType = 'illust_recommend' | 'author_recommend' | 'detail_info';
 type RankingSourceType = 'ranking_daily' | 'ranking_weekly' | 'ranking_monthly';
-export type PicTaskSourceType = 'unknown' | 'home' | 'illust_recommend' | 'author_recommend' | 'manual' | RankingSourceType;
+export type WatchTargetType = 'tag' | 'artist';
+export type WatchSourceType = 'tag_watch' | 'artist_watch';
+export type PicTaskSourceType =
+  | 'unknown'
+  | 'home'
+  | 'illust_recommend'
+  | 'author_recommend'
+  | 'manual'
+  | WatchSourceType
+  | RankingSourceType;
 export type PicSourceType = Exclude<PicTaskSourceType, 'unknown'>;
 
 export interface PicTaskUpsertOptions {
@@ -32,6 +41,8 @@ export interface RecentPreviewWindowConfig {
   homeDays: number;
   illustRecommendDays: number;
   authorRecommendDays: number;
+  tagWatchDays: number;
+  artistWatchDays: number;
   manualDays: number;
 }
 
@@ -40,6 +51,8 @@ export interface RecentPreviewQuotaConfig {
   rankingWeeklyRatio: number;
   homeRatio: number;
   relatedRatio: number;
+  tagWatchRatio: number;
+  artistWatchRatio: number;
   manualRatio: number;
 }
 
@@ -61,6 +74,18 @@ export interface DownloadJobInput {
   sourceType?: string;
   sourceKey?: string;
   maxAttempts?: number;
+}
+
+export interface WatchTargetUpsertInput {
+  id?: number;
+  targetType: WatchTargetType;
+  targetValue: string;
+  bizType?: string;
+  priority?: number;
+  windowDays?: number;
+  dailyPreviewQuota?: number;
+  enabled?: boolean;
+  meta?: string;
 }
 
 /**
@@ -590,6 +615,10 @@ export class TursoService {
     return Number(value);
   }
 
+  private normalizeBoolean(value?: boolean): number {
+    return value === false ? 0 : 1;
+  }
+
   private isPersistableSourceType(value?: string | null): value is PicSourceType {
     return Boolean(value && value !== 'unknown');
   }
@@ -696,6 +725,178 @@ export class TursoService {
       console.error('batch upsert pic_source failed:', error);
       throw error;
     }
+  }
+
+  async listWatchTargets(enabledOnly: boolean = false): Promise<WatchTarget[]> {
+    try {
+      const result = await this.client.execute({
+        sql: `
+          SELECT *
+          FROM watch_target
+          ${enabledOnly ? 'WHERE enabled = 1' : ''}
+          ORDER BY COALESCE(priority, 0) DESC, id ASC
+        `,
+        args: []
+      });
+
+      return result.rows.map(row => this.rowToWatchTarget(row));
+    } catch (error) {
+      console.error('list watch_target failed:', error);
+      return [];
+    }
+  }
+
+  async getRunnableWatchTargets(limit: number = 20, ids?: number[]): Promise<WatchTarget[]> {
+    const safeLimit = Math.max(1, Math.min(limit, 200));
+    const targetIds = Array.isArray(ids)
+      ? ids.map(id => Number(id)).filter(id => Number.isFinite(id) && id > 0)
+      : [];
+    const args: Array<number> = [];
+    let idFilterSql = '';
+
+    if (targetIds.length > 0) {
+      idFilterSql = ` AND id IN (${targetIds.map(() => '?').join(', ')})`;
+      args.push(...targetIds);
+    }
+
+    args.push(safeLimit);
+
+    try {
+      const result = await this.client.execute({
+        sql: `
+          SELECT *
+          FROM watch_target
+          WHERE enabled = 1
+          ${idFilterSql}
+          ORDER BY COALESCE(priority, 0) DESC, COALESCE(last_run_at, '') ASC, id ASC
+          LIMIT ?
+        `,
+        args
+      });
+
+      return result.rows.map(row => this.rowToWatchTarget(row));
+    } catch (error) {
+      console.error('get runnable watch_target failed:', error);
+      return [];
+    }
+  }
+
+  async upsertWatchTarget(input: WatchTargetUpsertInput): Promise<WatchTarget> {
+    const now = this.now();
+    const targetType = this.normalizeText(input.targetType);
+    const targetValue = this.normalizeText(input.targetValue);
+    const bizType = this.normalizeText(input.bizType) || 'general';
+    const priority = this.buildPicTaskPriorityValue(input.priority ?? 500);
+    const windowDays = Number.isFinite(input.windowDays) ? Math.max(1, Math.floor(input.windowDays as number)) : 7;
+    const dailyPreviewQuota = Number.isFinite(input.dailyPreviewQuota)
+      ? Math.max(1, Math.floor(input.dailyPreviewQuota as number))
+      : 50;
+    const enabled = input.enabled === undefined ? undefined : this.normalizeBoolean(input.enabled);
+    const meta = this.normalizeText(input.meta);
+
+    if ((targetType !== 'tag' && targetType !== 'artist') || !targetValue) {
+      throw new Error('Invalid watch target payload');
+    }
+
+    if (Number.isFinite(input.id)) {
+      await this.client.execute({
+        sql: `
+          UPDATE watch_target
+          SET target_type = ?,
+              target_value = ?,
+              biz_type = ?,
+              priority = ?,
+              window_days = ?,
+              daily_preview_quota = ?,
+              enabled = COALESCE(?, enabled),
+              meta = ?,
+              updated_at = ?
+          WHERE id = ?
+        `,
+        args: [
+          targetType,
+          targetValue,
+          bizType,
+          priority,
+          windowDays,
+          dailyPreviewQuota,
+          enabled ?? null,
+          meta,
+          now,
+          Number(input.id)
+        ]
+      });
+
+      const updated = await this.client.execute({
+        sql: 'SELECT * FROM watch_target WHERE id = ? LIMIT 1',
+        args: [Number(input.id)]
+      });
+      if (updated.rows.length === 0) {
+        throw new Error(`watch_target not found: ${input.id}`);
+      }
+      return this.rowToWatchTarget(updated.rows[0]);
+    }
+
+    await this.client.execute({
+      sql: `
+        INSERT INTO watch_target (
+          target_type, target_value, biz_type, priority, window_days,
+          daily_preview_quota, enabled, meta, created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(target_type, target_value, biz_type) DO UPDATE SET
+          priority = excluded.priority,
+          window_days = excluded.window_days,
+          daily_preview_quota = excluded.daily_preview_quota,
+          enabled = COALESCE(excluded.enabled, watch_target.enabled),
+          meta = COALESCE(excluded.meta, watch_target.meta),
+          updated_at = excluded.updated_at
+      `,
+      args: [
+        targetType,
+        targetValue,
+        bizType,
+        priority,
+        windowDays,
+        dailyPreviewQuota,
+        enabled ?? 1,
+        meta,
+        now,
+        now
+      ]
+    });
+
+    const result = await this.client.execute({
+      sql: `
+        SELECT *
+        FROM watch_target
+        WHERE target_type = ? AND target_value = ? AND biz_type = ?
+        LIMIT 1
+      `,
+      args: [targetType, targetValue, bizType]
+    });
+
+    if (result.rows.length === 0) {
+      throw new Error('Failed to upsert watch_target');
+    }
+
+    return this.rowToWatchTarget(result.rows[0]);
+  }
+
+  async deleteWatchTarget(id: number): Promise<void> {
+    await this.client.execute({
+      sql: 'DELETE FROM watch_target WHERE id = ?',
+      args: [id]
+    });
+  }
+
+  async markWatchTargetRun(id: number, runAt?: string): Promise<void> {
+    const lastRunAt = this.normalizeSourceRecentAt(runAt) || this.now();
+    const now = this.now();
+    await this.client.execute({
+      sql: 'UPDATE watch_target SET last_run_at = ?, updated_at = ? WHERE id = ?',
+      args: [lastRunAt, now, id]
+    });
   }
 
   // ========================================
@@ -1125,6 +1326,16 @@ export class TursoService {
         ratio: quotaConfig.relatedRatio
       },
       {
+        types: ['tag_watch'],
+        windowDays: windowConfig.tagWatchDays,
+        ratio: quotaConfig.tagWatchRatio
+      },
+      {
+        types: ['artist_watch'],
+        windowDays: windowConfig.artistWatchDays,
+        ratio: quotaConfig.artistWatchRatio
+      },
+      {
         types: ['manual'],
         windowDays: windowConfig.manualDays,
         ratio: quotaConfig.manualRatio
@@ -1165,7 +1376,17 @@ export class TursoService {
     }
 
     if (remaining > 0) {
-      const fallbackTypes = ['ranking_daily', 'ranking_weekly', 'ranking_monthly', 'home', 'illust_recommend', 'author_recommend', 'manual'];
+      const fallbackTypes = [
+        'ranking_daily',
+        'ranking_weekly',
+        'ranking_monthly',
+        'home',
+        'illust_recommend',
+        'author_recommend',
+        'tag_watch',
+        'artist_watch',
+        'manual'
+      ];
       const fallbackWindowDays = Math.max(
         windowConfig.rankingDailyDays,
         windowConfig.rankingWeeklyDays,
@@ -1173,6 +1394,8 @@ export class TursoService {
         windowConfig.homeDays,
         windowConfig.illustRecommendDays,
         windowConfig.authorRecommendDays,
+        windowConfig.tagWatchDays,
+        windowConfig.artistWatchDays,
         windowConfig.manualDays
       );
 
@@ -1497,6 +1720,23 @@ export class TursoService {
       attempt_count: row.attempt_count ? Number(row.attempt_count) : 0,
       next_retry_at: row.next_retry_at as string | undefined,
       last_error: row.last_error as string | undefined,
+      created_at: row.created_at as string | undefined,
+      updated_at: row.updated_at as string | undefined
+    };
+  }
+
+  private rowToWatchTarget(row: any): WatchTarget {
+    return {
+      id: Number(row.id),
+      target_type: (row.target_type as WatchTarget['target_type']) || 'tag',
+      target_value: row.target_value as string,
+      biz_type: (row.biz_type as string) || 'general',
+      priority: row.priority ? Number(row.priority) : 0,
+      window_days: row.window_days ? Number(row.window_days) : 7,
+      daily_preview_quota: row.daily_preview_quota ? Number(row.daily_preview_quota) : 50,
+      enabled: row.enabled === undefined ? true : Boolean(row.enabled),
+      last_run_at: row.last_run_at as string | undefined,
+      meta: row.meta as string | undefined,
       created_at: row.created_at as string | undefined,
       updated_at: row.updated_at as string | undefined
     };

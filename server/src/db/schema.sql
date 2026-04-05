@@ -86,6 +86,26 @@ CREATE INDEX IF NOT EXISTS idx_pic_source_pid ON pic_source(pid);
 CREATE INDEX IF NOT EXISTS idx_pic_source_type_recent ON pic_source(source_type, discovered_at);
 CREATE INDEX IF NOT EXISTS idx_pic_source_biz_recent ON pic_source(biz_type, discovered_at);
 
+CREATE TABLE IF NOT EXISTS watch_target (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    target_type TEXT NOT NULL,
+    target_value TEXT NOT NULL,
+    biz_type TEXT NOT NULL DEFAULT 'general',
+    priority INTEGER DEFAULT 500,
+    window_days INTEGER DEFAULT 7,
+    daily_preview_quota INTEGER DEFAULT 50,
+    enabled INTEGER DEFAULT 1,
+    last_run_at TEXT,
+    meta TEXT,
+    created_at TEXT,
+    updated_at TEXT,
+    UNIQUE(target_type, target_value, biz_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_watch_target_enabled_priority ON watch_target(enabled, priority);
+CREATE INDEX IF NOT EXISTS idx_watch_target_type_biz ON watch_target(target_type, biz_type);
+CREATE INDEX IF NOT EXISTS idx_watch_target_last_run ON watch_target(last_run_at);
+
 CREATE TABLE IF NOT EXISTS download_job (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     pid TEXT NOT NULL,

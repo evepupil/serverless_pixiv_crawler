@@ -303,6 +303,67 @@ export class PixivCrawler {
     return this.getRankByMode('monthly');
   }
 
+  async getTagArtworkPids(tag: string, targetNum: number = 60): Promise<string[]> {
+    const normalizedTag = tag.trim();
+    if (!normalizedTag) {
+      return [];
+    }
+
+    try {
+      const sleepTime = getRandomDelay(CRAWLER_CONFIG.REQUEST_DELAY_MIN, CRAWLER_CONFIG.REQUEST_DELAY_MAX);
+      await sleep(sleepTime);
+
+      const encodedTag = encodeURIComponent(normalizedTag);
+      const response = await this.httpClient.get(
+        `https://www.pixiv.net/ajax/search/artworks/${encodedTag}?word=${encodedTag}&order=date_d&s_mode=s_tag_full&mode=all&p=1&type=all&lang=zh`
+      );
+
+      const items = Array.isArray(response.data?.body?.illustManga?.data)
+        ? response.data.body.illustManga.data
+        : [];
+      const pids = Array.from(new Set<string>(
+        items
+          .map((item: any) => String(item?.id || '').trim())
+          .filter(Boolean)
+      )).slice(0, Math.max(1, targetNum));
+
+      this.logManager.addLog(`标签 ${normalizedTag} 获取到 ${pids.length} 个候选 PID`, 'info', this.taskId);
+      return pids;
+    } catch (error) {
+      this.logManager.addLog(`获取标签 ${normalizedTag} 作品失败: ${error instanceof Error ? error.message : String(error)}`, 'error', this.taskId);
+      return [];
+    }
+  }
+
+  async getArtistArtworkPids(artistId: string, targetNum: number = 60): Promise<string[]> {
+    const normalizedArtistId = artistId.trim();
+    if (!normalizedArtistId) {
+      return [];
+    }
+
+    try {
+      const sleepTime = getRandomDelay(CRAWLER_CONFIG.REQUEST_DELAY_MIN, CRAWLER_CONFIG.REQUEST_DELAY_MAX);
+      await sleep(sleepTime);
+
+      const response = await this.httpClient.get(
+        `https://www.pixiv.net/ajax/user/${normalizedArtistId}/profile/all?lang=zh`
+      );
+
+      const illusts = response.data?.body?.illusts;
+      const pids = Object.keys(illusts || {})
+        .map(pid => String(pid).trim())
+        .filter(Boolean)
+        .sort((left, right) => Number(right) - Number(left))
+        .slice(0, Math.max(1, targetNum));
+
+      this.logManager.addLog(`作者 ${normalizedArtistId} 获取到 ${pids.length} 个候选 PID`, 'info', this.taskId);
+      return pids;
+    } catch (error) {
+      this.logManager.addLog(`获取作者 ${normalizedArtistId} 作品失败: ${error instanceof Error ? error.message : String(error)}`, 'error', this.taskId);
+      return [];
+    }
+  }
+
   // ========================================
   // 推荐 PID 获取方法
   // ========================================

@@ -93,6 +93,26 @@ export const picSource = sqliteTable('pic_source', {
   index('idx_pic_source_biz_recent').on(table.bizType, table.discoveredAt)
 ]);
 
+export const watchTarget = sqliteTable('watch_target', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  targetType: text('target_type').notNull(),
+  targetValue: text('target_value').notNull(),
+  bizType: text('biz_type').notNull().default('general'),
+  priority: integer('priority').default(500),
+  windowDays: integer('window_days').default(7),
+  dailyPreviewQuota: integer('daily_preview_quota').default(50),
+  enabled: integer('enabled').default(1),
+  lastRunAt: text('last_run_at'),
+  meta: text('meta'),
+  createdAt: text('created_at'),
+  updatedAt: text('updated_at')
+}, table => [
+  uniqueIndex('watch_target_type_value_biz_unique').on(table.targetType, table.targetValue, table.bizType),
+  index('idx_watch_target_enabled_priority').on(table.enabled, table.priority),
+  index('idx_watch_target_type_biz').on(table.targetType, table.bizType),
+  index('idx_watch_target_last_run').on(table.lastRunAt)
+]);
+
 export const downloadJob = sqliteTable('download_job', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   pid: text('pid').notNull(),
@@ -120,6 +140,7 @@ export const schema = {
   picTask,
   ranking,
   picSource,
+  watchTarget,
   downloadJob
 };
 
@@ -131,5 +152,7 @@ export type RankingRow = typeof ranking.$inferSelect;
 export type NewRankingRow = typeof ranking.$inferInsert;
 export type PicSourceRow = typeof picSource.$inferSelect;
 export type NewPicSourceRow = typeof picSource.$inferInsert;
+export type WatchTargetRow = typeof watchTarget.$inferSelect;
+export type NewWatchTargetRow = typeof watchTarget.$inferInsert;
 export type DownloadJobRow = typeof downloadJob.$inferSelect;
 export type NewDownloadJobRow = typeof downloadJob.$inferInsert;

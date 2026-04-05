@@ -97,16 +97,20 @@ function getAutoPreviewWindowConfig(body: Record<string, any>) {
     homeDays: Math.max(1, parseInt(String(body.homeDays ?? parseIntEnv('AUTO_PREVIEW_HOME_DAYS', 7)), 10) || 7),
     illustRecommendDays: Math.max(1, parseInt(String(body.illustRecommendDays ?? parseIntEnv('AUTO_PREVIEW_ILLUST_RECOMMEND_DAYS', 7)), 10) || 7),
     authorRecommendDays: Math.max(1, parseInt(String(body.authorRecommendDays ?? parseIntEnv('AUTO_PREVIEW_AUTHOR_RECOMMEND_DAYS', 14)), 10) || 14),
+    tagWatchDays: Math.max(1, parseInt(String(body.tagWatchDays ?? parseIntEnv('AUTO_PREVIEW_TAG_WATCH_DAYS', 7)), 10) || 7),
+    artistWatchDays: Math.max(1, parseInt(String(body.artistWatchDays ?? parseIntEnv('AUTO_PREVIEW_ARTIST_WATCH_DAYS', 14)), 10) || 14),
     manualDays: Math.max(1, parseInt(String(body.manualDays ?? parseIntEnv('AUTO_PREVIEW_MANUAL_DAYS', 30)), 10) || 30)
   };
 }
 
 function getAutoPreviewQuotaConfig(body: Record<string, any>) {
   return {
-    rankingDailyRatio: Math.max(0, parseFloat(String(body.rankingDailyRatio ?? parseFloatEnv('AUTO_PREVIEW_QUOTA_RANKING_DAILY', 0.4))) || 0.4),
-    rankingWeeklyRatio: Math.max(0, parseFloat(String(body.rankingWeeklyRatio ?? parseFloatEnv('AUTO_PREVIEW_QUOTA_RANKING_WEEKLY', 0.2))) || 0.2),
-    homeRatio: Math.max(0, parseFloat(String(body.homeRatio ?? parseFloatEnv('AUTO_PREVIEW_QUOTA_HOME', 0.2))) || 0.2),
-    relatedRatio: Math.max(0, parseFloat(String(body.relatedRatio ?? parseFloatEnv('AUTO_PREVIEW_QUOTA_RELATED', 0.2))) || 0.2),
+    rankingDailyRatio: Math.max(0, parseFloat(String(body.rankingDailyRatio ?? parseFloatEnv('AUTO_PREVIEW_QUOTA_RANKING_DAILY', 0.35))) || 0.35),
+    rankingWeeklyRatio: Math.max(0, parseFloat(String(body.rankingWeeklyRatio ?? parseFloatEnv('AUTO_PREVIEW_QUOTA_RANKING_WEEKLY', 0.15))) || 0.15),
+    homeRatio: Math.max(0, parseFloat(String(body.homeRatio ?? parseFloatEnv('AUTO_PREVIEW_QUOTA_HOME', 0.15))) || 0.15),
+    relatedRatio: Math.max(0, parseFloat(String(body.relatedRatio ?? parseFloatEnv('AUTO_PREVIEW_QUOTA_RELATED', 0.15))) || 0.15),
+    tagWatchRatio: Math.max(0, parseFloat(String(body.tagWatchRatio ?? parseFloatEnv('AUTO_PREVIEW_QUOTA_TAG_WATCH', 0.12))) || 0.12),
+    artistWatchRatio: Math.max(0, parseFloat(String(body.artistWatchRatio ?? parseFloatEnv('AUTO_PREVIEW_QUOTA_ARTIST_WATCH', 0.08))) || 0.08),
     manualRatio: Math.max(0, parseFloat(String(body.manualRatio ?? parseFloatEnv('AUTO_PREVIEW_QUOTA_MANUAL', 0))) || 0)
   };
 }
@@ -117,6 +121,10 @@ function isTaskType(value: string | undefined): value is TaskType {
 
 function isRankType(value: string | undefined): value is RankType {
   return value === 'daily' || value === 'weekly' || value === 'monthly';
+}
+
+function isWatchTargetType(value: string | undefined): value is 'tag' | 'artist' {
+  return value === 'tag' || value === 'artist';
 }
 
 async function handleGetAction(
@@ -306,6 +314,53 @@ async function handleGetAction(
       return;
     }
 
+    case 'tag-search-pids': {
+      const tag = query.tag;
+      const targetNum = parseInt(query.targetNum || '60', 10);
+      if (!tag) {
+        sendJson(res, 400, { error: 'Missing tag' });
+        return;
+      }
+
+      try {
+        const taskId = `tag_search_${Date.now()}`;
+        const headersList = getPixivHeaders();
+        const crawler = new PixivCrawler('0', headersList, logManager, taskId, 0, db);
+        const pids = await crawler.getTagArtworkPids(tag, targetNum);
+        sendJson(res, 200, { success: true, tag, targetNum, pids, count: pids.length, taskId, timestamp: new Date().toISOString() });
+      } catch (error) {
+        sendJson(res, 500, { error: 'Failed to get tag artwork pids', message: error instanceof Error ? error.message : String(error) });
+      }
+      return;
+    }
+
+    case 'artist-works-pids': {
+      const artistId = query.artistId;
+      const targetNum = parseInt(query.targetNum || '60', 10);
+      if (!artistId) {
+        sendJson(res, 400, { error: 'Missing artistId' });
+        return;
+      }
+
+      try {
+        const taskId = `artist_works_${artistId}_${Date.now()}`;
+        const headersList = getPixivHeaders();
+        const crawler = new PixivCrawler('0', headersList, logManager, taskId, 0, db);
+        const pids = await crawler.getArtistArtworkPids(artistId, targetNum);
+        sendJson(res, 200, { success: true, artistId, targetNum, pids, count: pids.length, taskId, timestamp: new Date().toISOString() });
+      } catch (error) {
+        sendJson(res, 500, { error: 'Failed to get artist artwork pids', message: error instanceof Error ? error.message : String(error) });
+      }
+      return;
+    }
+
+    case 'watch-targets': {
+      const enabledOnly = parseBooleanLike(query.enabledOnly ?? query.enabled);
+      const items = await db.listWatchTargets(enabledOnly);
+      sendJson(res, 200, { success: true, count: items.length, items, timestamp: new Date().toISOString() });
+      return;
+    }
+
     case 'pid-detail-info': {
       const pid = query.pid;
       if (!pid) {
@@ -476,7 +531,10 @@ async function handleGetAction(
             '?action=scheduler-trigger&task=home',
             '?action=illust-recommend-pids&pid=xxx&targetNum=30',
             '?action=author-recommend-pids&pid=xxx&targetNum=30',
+            '?action=tag-search-pids&tag=壁纸&targetNum=60',
+            '?action=artist-works-pids&artistId=123456&targetNum=60',
             '?action=pid-detail-info&pid=xxx&threshold=0',
+            '?action=watch-targets',
             '?action=home',
             '?action=daily|weekly|monthly',
             '?action=proxy&pid=xxx&size=original'
@@ -488,6 +546,9 @@ async function handleGetAction(
             '{action:"batch-exists",pids:[...]}',
             '{action:"batch-detail-info",pids:[...],threshold}',
             '{action:"crawl-uncompleted",taskType,limit,threshold}',
+            '{action:"upsert-watch-target",targetType,targetValue,bizType,priority,windowDays,dailyPreviewQuota,enabled}',
+            '{action:"delete-watch-target",id}',
+            '{action:"collect-watch-targets",limitTargets,perTargetLimit,targetIds:[...]}',
             '{action:"auto-topn-preview",limit,minPopularity,sizes,dryRun}',
             '{action:"batch-download",pids:[...],sizes:[...]}'
           ]
@@ -646,6 +707,139 @@ async function handlePostAction(body: Record<string, any>, res: http.ServerRespo
           console.log(`[${taskId}] crawl-uncompleted done: ${successCount}/${uncompletedPids.length}`);
         } catch (error) {
           console.error(`[${taskId}] crawl-uncompleted failed:`, error);
+        }
+      })();
+      return;
+    }
+
+    case 'upsert-watch-target': {
+      if (!isWatchTargetType(body.targetType) || typeof body.targetValue !== 'string' || !body.targetValue.trim()) {
+        sendJson(res, 400, { error: 'Missing targetType/targetValue or invalid targetType' });
+        return;
+      }
+
+      const item = await db.upsertWatchTarget({
+        id: Number.isFinite(Number(body.id)) ? Number(body.id) : undefined,
+        targetType: body.targetType,
+        targetValue: body.targetValue,
+        bizType: typeof body.bizType === 'string' ? body.bizType : undefined,
+        priority: Number.isFinite(Number(body.priority)) ? Number(body.priority) : undefined,
+        windowDays: Number.isFinite(Number(body.windowDays)) ? Number(body.windowDays) : undefined,
+        dailyPreviewQuota: Number.isFinite(Number(body.dailyPreviewQuota)) ? Number(body.dailyPreviewQuota) : undefined,
+        enabled: body.enabled === undefined ? undefined : parseBooleanLike(body.enabled),
+        meta: typeof body.meta === 'string' ? body.meta : undefined
+      });
+
+      sendJson(res, 200, { success: true, item, timestamp: new Date().toISOString() });
+      return;
+    }
+
+    case 'delete-watch-target': {
+      const id = Number(body.id);
+      if (!Number.isFinite(id) || id <= 0) {
+        sendJson(res, 400, { error: 'Missing valid id' });
+        return;
+      }
+
+      await db.deleteWatchTarget(id);
+      sendJson(res, 200, { success: true, id, timestamp: new Date().toISOString() });
+      return;
+    }
+
+    case 'collect-watch-targets': {
+      const defaultLimitTargets = parseInt(process.env.WATCH_TARGET_RUN_LIMIT || '10', 10);
+      const defaultPerTargetLimit = parseInt(process.env.WATCH_TARGET_PER_TARGET_LIMIT || '60', 10);
+      const limitTargets = Number.isFinite(Number(body.limitTargets))
+        ? Math.max(1, Math.min(Number(body.limitTargets), 100))
+        : defaultLimitTargets;
+      const perTargetLimit = Number.isFinite(Number(body.perTargetLimit))
+        ? Math.max(1, Math.min(Number(body.perTargetLimit), 200))
+        : defaultPerTargetLimit;
+      const targetIds = Array.isArray(body.targetIds)
+        ? body.targetIds.map((value: unknown) => Number(value)).filter((value: number) => Number.isFinite(value) && value > 0)
+        : undefined;
+
+      const taskId = `collect_watch_targets_${Date.now()}`;
+      const targets = await db.getRunnableWatchTargets(limitTargets, targetIds);
+
+      sendJson(res, 200, {
+        success: true,
+        message: targets.length > 0 ? `Start processing ${targets.length} watch targets` : 'No runnable watch targets',
+        taskId,
+        targetCount: targets.length,
+        limitTargets,
+        perTargetLimit,
+        targets: targets.map(target => ({
+          id: target.id,
+          targetType: target.target_type,
+          targetValue: target.target_value,
+          bizType: target.biz_type,
+          priority: target.priority,
+          dailyPreviewQuota: target.daily_preview_quota
+        })),
+        timestamp: new Date().toISOString()
+      });
+
+      if (targets.length === 0) {
+        return;
+      }
+
+      (async () => {
+        try {
+          const headersList = getPixivHeaders();
+          const crawler = new PixivCrawler('0', headersList, logManager, taskId, 0, db);
+          const runAt = new Date().toISOString().slice(0, 19).replace('T', ' ');
+          let totalPidCount = 0;
+          let successTargetCount = 0;
+
+          for (const target of targets) {
+            try {
+              const targetQuota = Math.max(1, Math.min(perTargetLimit, Number(target.daily_preview_quota) || perTargetLimit));
+              const priority = Number(target.priority) || 500;
+              const sourceType = target.target_type === 'tag' ? 'tag_watch' : 'artist_watch';
+              const sourceKey = target.target_type === 'tag'
+                ? `tag:${target.target_value}`
+                : `artist:${target.target_value}`;
+
+              const pids = target.target_type === 'tag'
+                ? await crawler.getTagArtworkPids(target.target_value, targetQuota)
+                : await crawler.getArtistArtworkPids(target.target_value, targetQuota);
+
+              if (pids.length > 0) {
+                await db.batchCreatePicTasks(pids, {
+                  priority,
+                  sourceType,
+                  sourceKey,
+                  sourceRecentAt: runAt
+                });
+                await db.batchUpsertPicSources(
+                  pids.map(pid => ({
+                    pid,
+                    sourceType,
+                    sourceKey,
+                    discoveredAt: runAt,
+                    bizType: target.biz_type,
+                    sourceScore: priority,
+                    meta: JSON.stringify({
+                      watchTargetId: target.id,
+                      targetType: target.target_type,
+                      targetValue: target.target_value
+                    })
+                  }))
+                );
+              }
+
+              await db.markWatchTargetRun(target.id, runAt);
+              totalPidCount += pids.length;
+              successTargetCount += 1;
+            } catch (error) {
+              console.error(`[${taskId}] failed to process watch target ${target.id}:`, error);
+            }
+          }
+
+          console.log(`[${taskId}] collect-watch-targets done: ${successTargetCount}/${targets.length}, pids=${totalPidCount}`);
+        } catch (error) {
+          console.error(`[${taskId}] collect-watch-targets failed:`, error);
         }
       })();
       return;

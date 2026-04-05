@@ -44,6 +44,11 @@ function getSchedulerConfig() {
     detailInfoInterval: minuteToMs(parseInt(process.env.SCHEDULER_DETAIL_INFO_INTERVAL || '5')),
     detailInfoLimit: parseInt(process.env.SCHEDULER_DETAIL_INFO_LIMIT || '50'),
 
+    watchTargetInterval: minuteToMs(parseInt(process.env.SCHEDULER_WATCH_TARGET_INTERVAL || '60')),
+    watchTargetLimit: parseInt(process.env.SCHEDULER_WATCH_TARGET_LIMIT || process.env.WATCH_TARGET_RUN_LIMIT || '10'),
+    watchTargetPerTargetLimit: parseInt(process.env.SCHEDULER_WATCH_TARGET_PER_TARGET_LIMIT || process.env.WATCH_TARGET_PER_TARGET_LIMIT || '60'),
+    watchTargetEnabled: parseBool(process.env.SCHEDULER_WATCH_TARGET_ENABLED, true),
+
     // TopN preview download
     autoPreviewInterval: minuteToMs(parseInt(process.env.SCHEDULER_AUTO_PREVIEW_INTERVAL || '60')),
     autoPreviewLimit: parseInt(process.env.SCHEDULER_AUTO_PREVIEW_LIMIT || process.env.AUTO_PREVIEW_DEFAULT_LIMIT || '120'),
@@ -152,6 +157,18 @@ export class TaskScheduler {
           limit: config.detailInfoLimit
         },
         enabled: true
+      },
+      {
+        name: 'Watch target collection',
+        action: 'collect-watch-targets',
+        method: 'POST',
+        interval: config.watchTargetInterval,
+        body: {
+          action: 'collect-watch-targets',
+          limitTargets: config.watchTargetLimit,
+          perTargetLimit: config.watchTargetPerTargetLimit
+        },
+        enabled: config.watchTargetEnabled
       },
       {
         name: 'Auto TopN Preview Download',
