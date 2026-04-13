@@ -2,7 +2,7 @@
 import path from 'path';
 import dotenv from 'dotenv';
 
-import { TursoService } from './db/turso';
+import { TursoService, type BusinessCandidatePool } from './db/turso';
 import { PixivCrawler, ConsoleLogManager } from './crawler';
 import { PixivProxy, PixivDownloader } from './proxy';
 import { parseSizeList } from './proxy/storage-path';
@@ -132,6 +132,22 @@ function parsePidList(value: unknown): string[] {
   );
 }
 
+function parseTagList(value: unknown): string[] {
+  const raw = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+      ? value.split(/[\n,]/)
+      : [];
+
+  return Array.from(
+    new Set(
+      raw
+        .map(item => String(item).trim())
+        .filter(Boolean)
+    )
+  );
+}
+
 function parseBoundedInt(value: unknown, fallback: number, min: number, max: number): number {
   const parsed = parseInt(String(value ?? fallback), 10);
   if (!Number.isFinite(parsed)) {
@@ -202,6 +218,67 @@ function isRankType(value: string | undefined): value is RankType {
 
 function isWatchTargetType(value: string | undefined): value is 'tag' | 'artist' {
   return value === 'tag' || value === 'artist';
+}
+
+function isBusinessCandidatePool(value: string | undefined): value is BusinessCandidatePool {
+  return value === 'ranking'
+    || value === 'daily'
+    || value === 'artist'
+    || value === 'topic'
+    || value === 'avatar'
+    || value === 'wallpaper';
+}
+
+async function handleBusinessCandidatesAction(
+  payload: Record<string, any>,
+  res: http.ServerResponse,
+  db: TursoService
+) {
+  if (!isBusinessCandidatePool(payload.pool)) {
+    sendJson(res, 400, { error: 'Missing or invalid pool' });
+    return;
+  }
+
+  const limit = parseBoundedInt(payload.limit, 30, 1, 200);
+  const topN = parseBoundedInt(payload.topN, Math.max(limit, 200), limit, 1000);
+  const tags = parseTagList(payload.tags ?? payload.tag);
+  const downloadStatus = typeof payload.downloadStatus === 'string'
+    ? payload.downloadStatus
+    : 'any';
+  const excludePublished = payload.excludePublished === undefined ? true : parseBooleanLike(payload.excludePublished);
+  const onlyDownloaded = payload.onlyDownloaded === undefined ? true : parseBooleanLike(payload.onlyDownloaded);
+
+  const items = await db.getBusinessCandidatePool({
+    pool: payload.pool,
+    limit,
+    topN,
+    excludePublished,
+    onlyDownloaded,
+    downloadStatus:
+      downloadStatus === 'preview' || downloadStatus === 'regular' || downloadStatus === 'original'
+        ? downloadStatus
+        : 'any',
+    artistId: typeof payload.artistId === 'string' ? payload.artistId : undefined,
+    tags
+  });
+
+  sendJson(res, 200, {
+    success: true,
+    pool: payload.pool,
+    limit,
+    topN,
+    excludePublished,
+    onlyDownloaded,
+    downloadStatus:
+      downloadStatus === 'preview' || downloadStatus === 'regular' || downloadStatus === 'original'
+        ? downloadStatus
+        : 'any',
+    artistId: typeof payload.artistId === 'string' ? payload.artistId : undefined,
+    tags,
+    count: items.length,
+    items,
+    timestamp: new Date().toISOString()
+  });
 }
 
 async function handleGetAction(
@@ -438,6 +515,11 @@ async function handleGetAction(
       return;
     }
 
+    case 'business-candidates': {
+      await handleBusinessCandidatesAction(query, res, db);
+      return;
+    }
+
     case 'pid-detail-info': {
       const pid = query.pid;
       if (!pid) {
@@ -612,6 +694,7 @@ async function handleGetAction(
             '?action=artist-works-pids&artistId=123456&targetNum=60',
             '?action=pid-detail-info&pid=xxx&threshold=0',
             '?action=watch-targets',
+            '?action=business-candidates&pool=daily&limit=30&topN=200',
             '?action=home',
             '?action=daily|weekly|monthly',
             '?action=proxy&pid=xxx&size=original'
@@ -629,6 +712,7 @@ async function handleGetAction(
             '{action:"refresh-candidate-score",limit,pids:[...]}',
             '{action:"auto-topn-preview",limit,minPopularity,sizes,dryRun}',
             '{action:"run-backfill-preview",limit,minPopularity,minAgeDays,sizes,dryRun}',
+            '{action:"business-candidates",pool,limit,topN,excludePublished,onlyDownloaded,downloadStatus,artistId,tags}',
             '{action:"enqueue-full-download",pids:[...],sizes:[...],priority,sourceType,sourceKey,runNow}',
             '{action:"run-full-download",limit}',
             '{action:"reconcile-storage",limit,pids:[...],dryRun}',
@@ -1081,6 +1165,11 @@ async function handlePostAction(body: Record<string, any>, res: http.ServerRespo
       }
 
       runDownloadJobWorker(taskId, 'backfill preview jobs', claimedJobs, db);
+      return;
+    }
+
+    case 'business-candidates': {
+      await handleBusinessCandidatesAction(body, res, db);
       return;
     }
 

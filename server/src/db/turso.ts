@@ -74,6 +74,39 @@ export interface RecentPreviewCandidate {
 
 export interface BackfillPreviewCandidate extends RecentPreviewCandidate {}
 
+export type BusinessCandidatePool =
+  | 'ranking'
+  | 'daily'
+  | 'artist'
+  | 'topic'
+  | 'avatar'
+  | 'wallpaper';
+
+export type BusinessCandidateDownloadStatus = 'any' | 'preview' | 'regular' | 'original';
+
+interface BusinessCandidateSourceRule {
+  sourceType: PicSourceType;
+  windowDays: number;
+  bizType?: string;
+}
+
+export interface BusinessCandidateQuery {
+  pool: BusinessCandidatePool;
+  limit: number;
+  topN?: number;
+  excludePublished?: boolean;
+  onlyDownloaded?: boolean;
+  downloadStatus?: BusinessCandidateDownloadStatus;
+  artistId?: string;
+  tags?: string[];
+}
+
+export interface BusinessCandidateItem extends RecentPreviewCandidate {
+  downloadStage: 'none' | 'preview' | 'full';
+  lastSourceType?: string;
+  bizType?: string;
+}
+
 export interface DownloadJobInput {
   pid: string;
   jobType: 'preview' | 'full' | 'backfill';
@@ -884,6 +917,185 @@ export class TursoService {
   private buildDownloadCandidatePriorityExpression(taskAlias: string = 't', picAlias: string = 'p'): string {
     const effectiveScore = this.buildEffectiveCandidateScoreExpression(picAlias);
     return `MAX(COALESCE(${taskAlias}.priority, 0), CAST(ROUND(${effectiveScore}) AS INTEGER))`;
+  }
+
+  private buildHasPreviewArchiveExpression(picAlias: string = 'p'): string {
+    return `(
+      COALESCE(${picAlias}.image_variants, '') LIKE '%"thumb_mini":"%' OR
+      COALESCE(${picAlias}.image_variants, '') LIKE '%"small":"%' OR
+      COALESCE(${picAlias}.image_path, '') LIKE '%/thumb_mini.%' OR
+      COALESCE(${picAlias}.image_path, '') LIKE '%/small.%' OR
+      COALESCE(${picAlias}.download_stage, 'none') IN ('preview', 'full')
+    )`;
+  }
+
+  private buildHasRegularArchiveExpression(picAlias: string = 'p'): string {
+    return `(
+      COALESCE(${picAlias}.image_variants, '') LIKE '%"regular":"%' OR
+      COALESCE(${picAlias}.image_path, '') LIKE '%/regular.%'
+    )`;
+  }
+
+  private buildHasOriginalArchiveExpression(picAlias: string = 'p'): string {
+    return `(
+      COALESCE(${picAlias}.image_variants, '') LIKE '%"original":"%' OR
+      COALESCE(${picAlias}.image_path, '') LIKE '%/original.%'
+    )`;
+  }
+
+  private buildHasAnyArchiveExpression(picAlias: string = 'p'): string {
+    return `(
+      COALESCE(TRIM(${picAlias}.image_path), '') NOT IN ('', '[]') OR
+      COALESCE(TRIM(${picAlias}.image_variants), '') NOT IN ('', '{}') OR
+      COALESCE(${picAlias}.download_stage, 'none') <> 'none'
+    )`;
+  }
+
+  private buildDownloadStatusExpression(
+    filter: BusinessCandidateDownloadStatus = 'any',
+    picAlias: string = 'p'
+  ): string | null {
+    switch (filter) {
+      case 'preview':
+        return `(${this.buildHasPreviewArchiveExpression(picAlias)}) AND NOT (${this.buildHasRegularArchiveExpression(picAlias)}) AND NOT (${this.buildHasOriginalArchiveExpression(picAlias)})`;
+      case 'regular':
+        return this.buildHasRegularArchiveExpression(picAlias);
+      case 'original':
+        return this.buildHasOriginalArchiveExpression(picAlias);
+      default:
+        return null;
+    }
+  }
+
+  private buildPublishedExclusionExpression(pidExpr: string = 'p.pid'): string {
+    return `(
+      NOT EXISTS (
+        SELECT 1
+        FROM daily_pick_artwork dpa
+        INNER JOIN daily_pick dp ON dp.id = dpa.daily_pick_id
+        WHERE dpa.pid = ${pidExpr}
+          AND COALESCE(dp.is_published, 0) = 1
+      )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM artist_feature_artwork afa
+        INNER JOIN artist_feature af ON af.id = afa.artist_feature_id
+        WHERE afa.pid = ${pidExpr}
+          AND COALESCE(af.is_published, 0) = 1
+      )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM topic_feature_artwork tfa
+        INNER JOIN topic_feature tf ON tf.id = tfa.topic_feature_id
+        WHERE tfa.pid = ${pidExpr}
+          AND COALESCE(tf.is_published, 0) = 1
+      )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM daily_pick dp
+        WHERE dp.cover_pid = ${pidExpr}
+          AND COALESCE(dp.is_published, 0) = 1
+      )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM artist_feature af
+        WHERE af.cover_pid = ${pidExpr}
+          AND COALESCE(af.is_published, 0) = 1
+      )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM topic_feature tf
+        WHERE tf.cover_pid = ${pidExpr}
+          AND COALESCE(tf.is_published, 0) = 1
+      )
+    )`;
+  }
+
+  private sampleCandidates<T>(items: T[], limit: number): T[] {
+    if (items.length <= limit) {
+      return items;
+    }
+
+    const cloned = [...items];
+    for (let index = cloned.length - 1; index > 0; index -= 1) {
+      const swapIndex = Math.floor(Math.random() * (index + 1));
+      [cloned[index], cloned[swapIndex]] = [cloned[swapIndex], cloned[index]];
+    }
+
+    return cloned.slice(0, limit);
+  }
+
+  private getBusinessCandidateSourceRules(pool: BusinessCandidatePool): BusinessCandidateSourceRule[] {
+    switch (pool) {
+      case 'ranking':
+        return [
+          { sourceType: 'ranking_daily', windowDays: 3 },
+          { sourceType: 'ranking_weekly', windowDays: 7 },
+          { sourceType: 'ranking_monthly', windowDays: 14 }
+        ];
+      case 'daily':
+        return [
+          { sourceType: 'ranking_daily', windowDays: 3 },
+          { sourceType: 'ranking_weekly', windowDays: 7 },
+          { sourceType: 'home', windowDays: 7 },
+          { sourceType: 'illust_recommend', windowDays: 7 },
+          { sourceType: 'author_recommend', windowDays: 14 }
+        ];
+      case 'topic':
+        return [
+          { sourceType: 'tag_watch', windowDays: 7, bizType: 'topic' }
+        ];
+      case 'avatar':
+        return [
+          { sourceType: 'tag_watch', windowDays: 7, bizType: 'avatar' }
+        ];
+      case 'wallpaper':
+        return [
+          { sourceType: 'tag_watch', windowDays: 7, bizType: 'wallpaper' }
+        ];
+      case 'artist':
+        return [
+          { sourceType: 'artist_watch', windowDays: 14, bizType: 'artist' },
+          { sourceType: 'manual', windowDays: 30 }
+        ];
+      default:
+        return [];
+    }
+  }
+
+  private buildBusinessCandidateSourceWhere(
+    rules: BusinessCandidateSourceRule[]
+  ): { sql: string; args: Array<string | number> } {
+    const clauses: string[] = [];
+    const args: Array<string | number> = [];
+
+    for (const rule of rules) {
+      const since = new Date(Date.now() - Math.max(1, Math.floor(rule.windowDays)) * 24 * 60 * 60 * 1000)
+        .toISOString()
+        .slice(0, 19)
+        .replace('T', ' ');
+
+      if (rule.bizType) {
+        clauses.push(`(
+          s.source_type = ?
+          AND COALESCE(s.discovered_at, s.created_at) >= ?
+          AND COALESCE(s.biz_type, '') = ?
+        )`);
+        args.push(rule.sourceType, since, rule.bizType);
+        continue;
+      }
+
+      clauses.push(`(
+        s.source_type = ?
+        AND COALESCE(s.discovered_at, s.created_at) >= ?
+      )`);
+      args.push(rule.sourceType, since);
+    }
+
+    return {
+      sql: clauses.length > 0 ? clauses.join(' OR ') : '1 = 0',
+      args
+    };
   }
 
   private normalizeArchivePaths(paths: Array<string | null | undefined>): string[] {
@@ -1887,6 +2099,124 @@ export class TursoService {
       }));
     } catch (error) {
       console.error('query recent preview candidates failed:', error);
+      return [];
+    }
+  }
+
+  async getBusinessCandidatePool(query: BusinessCandidateQuery): Promise<BusinessCandidateItem[]> {
+    const safeLimit = Math.max(1, Math.min(query.limit, 200));
+    const safeTopN = Math.max(safeLimit, Math.min(query.topN || query.limit || 200, 1000));
+    const rules = this.getBusinessCandidateSourceRules(query.pool);
+    if (rules.length === 0) {
+      return [];
+    }
+
+    const { sql: sourceWhereSql, args } = this.buildBusinessCandidateSourceWhere(rules);
+    const candidateScoreSql = this.buildEffectiveCandidateScoreExpression('p');
+    const prioritySql = this.buildDownloadCandidatePriorityExpression('t', 'p');
+    const onlyDownloaded = query.onlyDownloaded !== false;
+    const tags = Array.from(new Set((query.tags || []).map(tag => tag.trim()).filter(Boolean)));
+    const artistId = this.normalizeText(query.artistId);
+
+    let tagWhereSql = '';
+    if (tags.length > 0) {
+      const clauses = tags.map(() => `(COALESCE(p.tag, '') LIKE ? OR COALESCE(matched_source.source_key, '') = ?)`);
+      tagWhereSql = ` AND (${clauses.join(' OR ')})`;
+      for (const tag of tags) {
+        args.push(`%${tag}%`, `tag:${tag}`);
+      }
+    }
+
+    let artistWhereSql = '';
+    if (artistId) {
+      artistWhereSql = ` AND (COALESCE(p.author_id, '') = ? OR COALESCE(matched_source.source_key, '') = ?)`;
+      args.push(artistId, `artist:${artistId}`);
+    }
+
+    const whereParts = [
+      'matched_source.rn = 1',
+      'COALESCE(p.unfit, 0) = 0',
+      'COALESCE(t.detail_info_crawled, 1) = 1'
+    ];
+
+    if (query.excludePublished !== false) {
+      whereParts.push(this.buildPublishedExclusionExpression('p.pid'));
+    }
+
+    if (onlyDownloaded) {
+      whereParts.push(this.buildHasAnyArchiveExpression('p'));
+    }
+
+    const downloadStatusSql = this.buildDownloadStatusExpression(query.downloadStatus || 'any', 'p');
+    if (downloadStatusSql) {
+      whereParts.push(downloadStatusSql);
+    }
+
+    args.push(safeTopN);
+
+    try {
+      const result = await this.client.execute({
+        sql: `
+          WITH matched_source AS (
+            SELECT
+              s.pid,
+              s.source_type,
+              s.source_key,
+              s.biz_type,
+              COALESCE(s.discovered_at, s.created_at) AS source_recent_at,
+              ROW_NUMBER() OVER (
+                PARTITION BY s.pid
+                ORDER BY COALESCE(s.discovered_at, s.created_at) DESC, s.id DESC
+              ) AS rn
+            FROM pic_source s
+            WHERE ${sourceWhereSql}
+          )
+          SELECT
+            p.pid,
+            ${prioritySql} AS priority,
+            ROUND(${candidateScoreSql}, 4) AS candidate_score,
+            COALESCE(matched_source.source_type, p.last_source_type, 'unknown') AS source_type,
+            matched_source.source_key AS source_key,
+            matched_source.source_recent_at AS source_recent_at,
+            COALESCE(p.popularity, 0) AS popularity,
+            COALESCE(p.view, 0) AS view,
+            COALESCE(p.download_stage, 'none') AS download_stage,
+            p.last_source_type AS last_source_type,
+            matched_source.biz_type AS biz_type
+          FROM matched_source
+          INNER JOIN pic p ON p.pid = matched_source.pid
+          LEFT JOIN pic_task t ON t.pid = p.pid
+          WHERE ${whereParts.join(' AND ')}
+            ${tagWhereSql}
+            ${artistWhereSql}
+          ORDER BY
+            candidate_score DESC,
+            ${prioritySql} DESC,
+            COALESCE(p.popularity, 0) DESC,
+            COALESCE(p.view, 0) DESC,
+            COALESCE(matched_source.source_recent_at, p.last_seen_at, p.first_seen_at, p.created_at) DESC
+          LIMIT ?
+        `,
+        args
+      });
+
+      const rows = result.rows.map(row => ({
+        pid: row.pid as string,
+        priority: Number(row.priority) || 0,
+        candidateScore: Number(row.candidate_score) || 0,
+        sourceType: row.source_type as string,
+        sourceKey: row.source_key as string | undefined,
+        sourceRecentAt: row.source_recent_at as string | undefined,
+        popularity: Number(row.popularity) || 0,
+        view: Number(row.view) || 0,
+        downloadStage: (row.download_stage as BusinessCandidateItem['downloadStage']) || 'none',
+        lastSourceType: row.last_source_type as string | undefined,
+        bizType: row.biz_type as string | undefined
+      }));
+
+      return this.sampleCandidates(rows, safeLimit);
+    } catch (error) {
+      console.error('query business candidate pool failed:', error);
       return [];
     }
   }
