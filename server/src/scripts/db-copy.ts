@@ -53,6 +53,15 @@ export async function copyTables(
   const tables = options.tables ?? CRAWLER_TABLES;
   const results: CopyTableResult[] = [];
 
+  // 列出源库全部表，对未配置复制规则的表发出警告，避免悄悄漏数据
+  const allTables = await listTables(src);
+  const configured = new Set(tables.map(t => t.name));
+  const extra = allTables.filter(name => !configured.has(name));
+  if (extra.length > 0) {
+    console.warn(`[copy] 警告：源库存在未配置复制规则的表，将被跳过: ${extra.join(', ')}`);
+    console.warn('[copy] 如需复制这些表，请在 CRAWLER_TABLES 里补充其唯一键配置。');
+  }
+
   for (const table of tables) {
     const startedAt = Date.now();
     let copied = 0;
@@ -123,6 +132,15 @@ export async function countRows(client: Client, tableName: string): Promise<numb
   const result = await client.execute({ sql: `SELECT COUNT(*) AS c FROM ${tableName}`, args: [] });
   const row = result.rows[0] as Record<string, unknown> | undefined;
   return Number(row?.c ?? 0);
+}
+
+/** 列出库里所有用户表（排除 sqlite 内部表）。 */
+export async function listTables(client: Client): Promise<string[]> {
+  const result = await client.execute({
+    sql: "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+    args: []
+  });
+  return result.rows.map(row => String((row as Record<string, unknown>).name));
 }
 
 function splitSqlStatements(sql: string): string[] {
