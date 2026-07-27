@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -65,12 +66,19 @@ class WeixinClient:
 
         def do_request(tok: str) -> requests.Response:
             merged = {"access_token": tok, **(params or {})}
+            headers: dict[str, str] = {}
+            data: bytes | None = None
+            if json_body is not None:
+                # ensure_ascii=False:中文走 UTF-8 字面,避免微信把 \uXXXX 转义当字面串导致字段超长
+                data = json.dumps(json_body, ensure_ascii=False).encode("utf-8")
+                headers["Content-Type"] = "application/json"
             return requests.request(
                 method,
                 url,
                 params=merged,
-                json=json_body,
+                data=data,
                 files=files,
+                headers=headers,
                 timeout=timeout,
             )
 
