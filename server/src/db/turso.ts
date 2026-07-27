@@ -1,6 +1,6 @@
 import { type Client } from '@libsql/client';
 import { DatabasePic, DownloadJob, PicTask, PixivDailyRankItem, WatchTarget } from '../types';
-import { createLibsqlClient, getSharedLibsqlClient } from './client';
+import { createLibsqlClient, getSharedLibsqlClient, isFileUrl } from './client';
 import {
   buildImageVariants as buildImageVariantMap,
   parseImagePathValue,
@@ -158,8 +158,12 @@ export class TursoService {
     const token = authToken || process.env.TURSO_AUTH_TOKEN;
     const localSyncUrl = syncUrl || process.env.TURSO_SYNC_URL;
 
-    if (!dbUrl || !token) {
-      throw new Error('Missing TURSO_DATABASE_URL or TURSO_AUTH_TOKEN');
+    if (!dbUrl) {
+      throw new Error('Missing TURSO_DATABASE_URL');
+    }
+    // file: 本地文件模式不需要 token；远程 libsql:// 才需要
+    if (!isFileUrl(dbUrl) && !token) {
+      throw new Error('Missing TURSO_AUTH_TOKEN for remote libsql URL');
     }
 
     // Use shared client by default to keep one connection pool in process.
