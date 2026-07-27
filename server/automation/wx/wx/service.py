@@ -5,12 +5,14 @@ publish_article 是对外的一键入口，把零散的微信接口串成完整�
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime
 
 from .client import WeixinClient
 from .config import get_account
 from .content import build_content
 from .errors import WeixinError
+from .fetch import fetch_image_via_proxy
 from .types import AccountConfig, ArticleSpec, PublishResult, UploadedImage
 
 logger = logging.getLogger("wx.service")
@@ -34,7 +36,19 @@ def publish_article(account: str | AccountConfig, spec: ArticleSpec) -> PublishR
     client = WeixinClient(acc)
     result = PublishResult(success=False)
 
+    fetched_paths: list[str] = []
     try:
+        # 0. pids 模式:用爬虫 proxy 拉图到本地,填入 image_paths(复用后续流程)
+        if spec.pids:
+            for pid in spec.pids:
+                try:
+                    fetched_paths.append(fetch_image_via_proxy(pid, spec.image_size))
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("拉图失败 pid=%s: %s", pid, exc)
+            if not fetched_paths:
+                raise WeixinError("pids 模式拉图全部失败,检查 proxy / SERVER_API_KEY")
+            spec.image_paths = fetched_paths
+
         # 1. 封面
         thumb_media_id = acc.thumb_media_id
         if not thumb_media_id:
@@ -88,6 +102,13 @@ def publish_article(account: str | AccountConfig, spec: ArticleSpec) -> PublishR
         result.success = False
         result.error = f"unexpected: {exc}"
         logger.exception("发图文异常")
+    finally:
+        # 清理 pids 模式拉来的临时文件(image_paths 模式不涉及)
+        for p in fetched_paths:
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
     return result
 
 

@@ -58,6 +58,9 @@ class Settings:
         self.token_cache_path = Path(
             _env("WX_TOKEN_CACHE_PATH") or (BASE_DIR / "token_cache.json")
         )
+        # 爬虫 server proxy(pids 模式用它拉图;同部署默认本机)
+        self.server_base_url = _env("SERVER_BASE_URL", "http://127.0.0.1:3000")
+        self.server_api_key = _env("SERVER_API_KEY", "")
         # token 提前刷新余量（秒），默认提前 5 分钟续期
         self.token_refresh_margin = _env_int("WX_TOKEN_REFRESH_MARGIN", 300)
         self.log_level = _env("WX_LOG_LEVEL", "INFO").upper()

@@ -44,6 +44,10 @@ class ArticleSpec:
     submit_publish: bool = False
     need_open_comment: int | None = None
     only_fans_can_comment: int | None = None
+    # pids 模式:传作品 pid,服务端用爬虫 proxy 拉图填入 image_paths(与 image_paths 二选一)
+    pids: list[str] = field(default_factory=list)
+    # pids 模式下拉这个尺寸(regular / original / small / thumb_mini)
+    image_size: str = "regular"
 
 
 @dataclass
