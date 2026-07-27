@@ -61,7 +61,8 @@ function getSchedulerConfig() {
         'thumb_mini,small',
       ['thumb_mini', 'small']
     ),
-    autoPreviewEnabled: parseBool(process.env.SCHEDULER_AUTO_PREVIEW_ENABLED, true),
+    // B2 已废弃：预览/全量下载会写 B2，默认关；需要时再用 env 显式开启
+    autoPreviewEnabled: parseBool(process.env.SCHEDULER_AUTO_PREVIEW_ENABLED, false),
 
     backfillPreviewInterval: minuteToMs(parseInt(process.env.SCHEDULER_BACKFILL_PREVIEW_INTERVAL || '1440')),
     backfillPreviewLimit: parseInt(process.env.SCHEDULER_BACKFILL_PREVIEW_LIMIT || process.env.BACKFILL_PREVIEW_DEFAULT_LIMIT || '30'),
@@ -79,7 +80,7 @@ function getSchedulerConfig() {
 
     fullDownloadInterval: minuteToMs(parseInt(process.env.SCHEDULER_FULL_DOWNLOAD_INTERVAL || '5')),
     fullDownloadLimit: parseInt(process.env.SCHEDULER_FULL_DOWNLOAD_LIMIT || process.env.FULL_DOWNLOAD_DEFAULT_LIMIT || '30'),
-    fullDownloadEnabled: parseBool(process.env.SCHEDULER_FULL_DOWNLOAD_ENABLED, true),
+    fullDownloadEnabled: parseBool(process.env.SCHEDULER_FULL_DOWNLOAD_ENABLED, false),
 
     reconcileStorageInterval: minuteToMs(parseInt(process.env.SCHEDULER_RECONCILE_STORAGE_INTERVAL || '1440')),
     reconcileStorageLimit: parseInt(process.env.SCHEDULER_RECONCILE_STORAGE_LIMIT || '50'),

@@ -31,9 +31,9 @@ const SIZE_FALLBACK_CHAIN = ['original', 'regular', 'small', 'thumb_mini'];
 export class PixivProxy {
   private headers: PixivHeaders;
   private httpClient: AxiosInstance;
-  private s3Client: S3Client;
-  private bucketName: string;
-  private b2BaseUrl: string;
+  private s3Client?: S3Client;
+  private bucketName = '';
+  private b2BaseUrl = '';
   private logManager: ILogManager;
   private taskId: string;
   private turso: TursoService;
@@ -54,21 +54,36 @@ export class PixivProxy {
       headers: this.headers as any
     });
 
-    this.bucketName = process.env.B2_BUCKET_NAME || '';
-    this.b2BaseUrl = getB2BaseUrlFromEnv();
+    // B2 已废弃：构造时不再初始化 S3 客户端，改为按需惰性创建（见 ensureB2Client）。
+    // proxyImage 已不再查 B2 缓存，正常链路不会触发 B2 调用。
+  }
 
+  /**
+   * 按需创建 B2 S3 客户端（仅在 checkB2Cache 等遗留路径被调用时才读 B2 凭证）。
+   * B2 未配置时跳过，不报错。
+   */
+  private ensureB2Client(): void {
+    if (this.s3Client) {
+      return;
+    }
+    const keyId = process.env.B2_APPLICATION_KEY_ID;
+    const key = process.env.B2_APPLICATION_KEY;
+    if (!keyId || !key) {
+      return;
+    }
     let endpoint = process.env.B2_ENDPOINT || '';
     if (endpoint && !endpoint.startsWith('http://') && !endpoint.startsWith('https://')) {
       endpoint = `https://${endpoint}`;
     }
-
+    this.bucketName = process.env.B2_BUCKET_NAME || '';
+    this.b2BaseUrl = getB2BaseUrlFromEnv();
     this.s3Client = new S3Client({
       endpoint,
       region: process.env.B2_REGION || 'us-east-1',
       forcePathStyle: true,
       credentials: {
-        accessKeyId: process.env.B2_APPLICATION_KEY_ID || '',
-        secretAccessKey: process.env.B2_APPLICATION_KEY || ''
+        accessKeyId: keyId,
+        secretAccessKey: key
       }
     });
   }
@@ -96,6 +111,10 @@ export class PixivProxy {
   }
 
   private async existsInB2(key: string): Promise<boolean> {
+    this.ensureB2Client();
+    if (!this.s3Client || !this.bucketName) {
+      return false;
+    }
     try {
       await this.s3Client.send(new HeadObjectCommand({
         Bucket: this.bucketName,
@@ -166,15 +185,7 @@ export class PixivProxy {
       const size = normalizeSize(targetSize);
       this.logManager.addLog(`Proxy request: pid=${pid} size=${size}`, 'info', this.taskId);
 
-      const b2Url = await this.checkB2Cache(pid, size);
-      if (b2Url) {
-        return {
-          success: true,
-          fromCache: true,
-          b2Url
-        };
-      }
-
+      // B2 已废弃：直接从 Pixiv 拉图，不再查 B2 缓存。
       return await this.fetchFromPixiv(pid, size);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

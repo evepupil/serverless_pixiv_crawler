@@ -632,15 +632,6 @@ async function handleGetAction(
           return;
         }
 
-        if (result.fromCache && result.b2Url) {
-          res.writeHead(302, {
-            Location: result.b2Url,
-            'Access-Control-Allow-Origin': '*'
-          });
-          res.end();
-          return;
-        }
-
         if (!result.imageBuffer) {
           sendJson(res, 500, { error: 'Failed to load image buffer' });
           return;
@@ -653,17 +644,6 @@ async function handleGetAction(
           'Access-Control-Allow-Origin': '*'
         });
         res.end(result.imageBuffer);
-
-        (async () => {
-          try {
-            const downloadTaskId = `async_download_${pid}_${Date.now()}`;
-            const downloader = new PixivDownloader(headersList[0], logManager, downloadTaskId, db);
-            await downloader.downloadAndArchive(pid, targetSize);
-            console.log(`[${downloadTaskId}] async archive done: ${pid}`);
-          } catch (error) {
-            console.error(`async archive failed for ${pid}:`, error);
-          }
-        })();
       } catch (error) {
         sendJson(res, 500, { error: 'Proxy request failed', message: error instanceof Error ? error.message : String(error) });
       }
