@@ -139,19 +139,19 @@ export interface WatchTargetUpsertInput {
 }
 
 /**
- * TursoService - 鍩轰�?@libsql/client 鐨勬暟鎹簱鏈嶅姟绫?
+ * TursoService - 基于 @libsql/client 的数据库服务类
  *
- * 鐩告�?Supabase (PostgreSQL)锛屼娇鐢?SQLite 璇硶锛屽苟鏀寔 Turso �?Local Read Replica
- * 鍔熻兘锛屽彲灏嗘煡璇㈠欢杩熼檷鑷冲井绉掔骇锛屾瀬澶ф彁鍗囬€掑綊鐖櫕鍘婚噸妫€鏌ョ殑閫熷害�?
+ * 相比 Supabase (PostgreSQL)，使用 SQLite 语法，并支持 Turso 的 Local Read Replica
+ * 功能，可将查询延迟降至微秒级，极大提升递归爬虫去重检查的速度。
  */
 export class TursoService {
   private client: Client;
 
   /**
-   * TursoService 鏋勯€犲嚱鏁?
-   * @param url Turso 鏁版嵁搴?URL (渚嬪�? libsql://xxx.turso.io)
-   * @param authToken Turso 璁よ瘉浠ょ墝
-   * @param syncUrl 鍙€夌殑鏈湴鍚屾 URL (鐢ㄤ�?Local Read Replica)
+   * TursoService 构造函数
+   * @param url Turso 数据库 URL (例如: libsql://xxx.turso.io)
+   * @param authToken Turso 认证令牌
+   * @param syncUrl 可选的本地同步 URL (用于 Local Read Replica)
    */
   constructor(url?: string, authToken?: string, syncUrl?: string) {
     const dbUrl = url || process.env.TURSO_DATABASE_URL;
@@ -168,22 +168,22 @@ export class TursoService {
       : getSharedLibsqlClient();
 
     if (localSyncUrl) {
-      console.log('Turso 鏈湴鍓湰妯″紡宸插惎鐢紝鍚屾URL:', localSyncUrl);
+      console.log('Turso 本地副本模式已启用，同步URL:', localSyncUrl);
     }
 
-    console.log('Turso 瀹㈡埛绔垵濮嬪寲瀹屾�?', {
+    console.log('Turso 客户端初始化完成:', {
       url: dbUrl.substring(0, 30) + '...',
       hasLocalReplica: !!localSyncUrl
     });
   }
 
   // ========================================
-  // Pic 琛ㄦ搷浣?
+  // Pic 表操作
   // ========================================
 
   /**
-   * 鍒涘缓鎴栨洿�?Pic 璁板�?(Upsert)
-   * 浣跨�?SQLite �?ON CONFLICT(pid) DO UPDATE 璇�?
+   * 创建或更新 Pic 记录 (Upsert)
+   * 使用 SQLite 的 ON CONFLICT(pid) DO UPDATE 语法
    * @param pic 图片数据
    */
   async upsertPic(pic: DatabasePic): Promise<void> {
@@ -281,15 +281,15 @@ export class TursoService {
 
       await this.refreshCandidateScores({ pids: [pic.pid] });
 
-      console.log('Upsert Pic 瀹屾�?', { pid: pic.pid });
+      console.log('Upsert Pic 完成:', { pid: pic.pid });
     } catch (error) {
-      console.error('Upsert Pic 澶辫�?', error);
+      console.error('Upsert Pic 失败:', error);
       throw error;
     }
   }
 
   /**
-   * 鍒涘�?Pic 璁板�?(鍏煎鏃ф帴鍙?
+   * 创建 Pic 记录 (兼容旧接口)
    * @param pic 图片数据
    */
   async createPic(pic: DatabasePic): Promise<void> {
@@ -297,7 +297,7 @@ export class TursoService {
   }
 
   /**
-   * 鏍规�?PID 鑾峰�?Pic 璁板�?
+   * 根据 PID 获取 Pic 记录
    * @param pid 图片ID
    * @returns DatabasePic �?null
    */
@@ -314,16 +314,16 @@ export class TursoService {
 
       return this.rowToDatabasePic(result.rows[0]);
     } catch (error) {
-      console.error('鑾峰�?Pic 澶辫�?', error);
+      console.error('获取 Pic 失败:', error);
       return null;
     }
   }
 
   /**
-   * 妫€�?PID 鏄惁宸插瓨鍦紙楂樻€ц兘鍘婚噸妫€鏌ワ�?
-   * 鍒╃�?Local Read Replica 鍙疄鐜板井绉掔骇鏌ヨ
+   * 检查 PID 是否已存在（高性能去重检查）
+   * 利用 Local Read Replica 可实现微秒级查询
    * @param pid 图片ID
-   * @returns 鏄惁瀛樺�?
+   * @returns 是否存在
    */
   async existsPid(pid: string): Promise<boolean> {
     try {
@@ -333,21 +333,21 @@ export class TursoService {
       });
       return result.rows.length > 0;
     } catch (error) {
-      console.error('妫€�?PID 瀛樺湪鎬уけ璐?', error);
+      console.error('检查 PID 存在性失败:', error);
       return false;
     }
   }
 
   /**
-   * 鎵归噺妫€鏌?PID 鏄惁宸插瓨鍦紙楂樻€ц兘鎵归噺鍘婚噸锛?
+   * 批量检查 PID 是否已存在（高性能批量去重）
    * @param pids PID 数组
-   * @returns 宸插瓨鍦ㄧ殑 PID 闆嗗�?
+   * @returns 已存在的 PID 集合
    */
   async getExistingPids(pids: string[]): Promise<Set<string>> {
     if (pids.length === 0) return new Set();
 
     try {
-      // SQLite 浣跨�?IN 瀛愬彞锛屾瀯寤哄崰浣嶇�?
+      // SQLite 使用 IN 子句，构建占位符
       const placeholders = pids.map(() => '?').join(',');
       const result = await this.client.execute({
         sql: `SELECT pid FROM pic WHERE pid IN (${placeholders})`,
@@ -360,17 +360,17 @@ export class TursoService {
       }
       return existingPids;
     } catch (error) {
-      console.error('鎵归噺妫€鏌?PID 澶辫�?', error);
+      console.error('批量检查 PID 失败:', error);
       return new Set();
     }
   }
 
   /**
-   * 鏇存�?Pic 涓嬭浇淇℃伅
+   * 更新 Pic 下载信息
    * @param pid 图片ID
-   * @param path 瀛樺偍璺緞锛堜笉甯﹀煙鍚嶅墠缂€�?
+   * @param path 存储路径（不带域名前缀）
    * @param imgUrl 图片URL
-   * @param fileSize 鏂囦欢澶у皬锛堝彲閫夛�?
+   * @param fileSize 文件大小（可选）
    */
   async updatePicDownload(pid: string, path: string, imgUrl: string, fileSize?: number): Promise<void> {
     const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
@@ -430,26 +430,26 @@ export class TursoService {
         ]
       });
 
-      console.log('?? Pic ??????:', {
+      console.log('更新 Pic 下载信息完成:', {
         pid,
         image_path: archiveState.imagePath,
         download_stage: archiveState.downloadStage
       });
     } catch (error) {
-      console.error('?? Pic ??????:', error);
+      console.error('更新 Pic 下载信息失败:', error);
       throw error;
     }
   }
 
   /**
-   * 鏇存�?Pic 璁板�?
-   * @param pic 閮ㄥ垎鍥剧墖鏁版�?(蹇呴』鍖呭惈 pid)
+   * 更新 Pic 记录
+   * @param pic 部分图片数据 (必须包含 pid)
    */
   async updatePic(pic: Partial<DatabasePic> & { pid: string }): Promise<void> {
     const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
     const { pid, ...updateData } = pic;
 
-    // 鍔ㄦ€佹瀯寤?SET 瀛愬�?
+    // 动态构建 SET 子句
     const setClauses: string[] = [];
     const args: any[] = [];
 
@@ -460,11 +460,11 @@ export class TursoService {
       }
     }
 
-    // 娣诲�?updated_at
+    // 添加 updated_at
     setClauses.push('updated_at = ?');
     args.push(now);
 
-    // 娣诲�?WHERE 鏉′欢鐨勫弬鏁?
+    // 添加 WHERE 条件的参数
     args.push(pid);
 
     try {
@@ -475,15 +475,15 @@ export class TursoService {
 
       await this.refreshCandidateScores({ pids: [pid] });
 
-      console.log('鏇存�?Pic 瀹屾�?', { pid });
+      console.log('更新 Pic 完成:', { pid });
     } catch (error) {
-      console.error('鏇存�?Pic 澶辫�?', error);
+      console.error('更新 Pic 失败:', error);
       throw error;
     }
   }
 
   /**
-   * 鏈€灏忓寲鎵归噺鎻掑�?鏇存�?Pic (�?pid)
+   * 最小化批量插入/更新 Pic (仅 pid)
    * @param pids PID 数组
    */
   async replacePicArchiveState(
@@ -602,9 +602,9 @@ export class TursoService {
 
       await this.client.batch(statements);
 
-      console.log('鎵归�?Upsert 鏈€�?Pic 瀹屾�?', { count: uniquePids.length });
+      console.log('批量 Upsert 最小 Pic 完成:', { count: uniquePids.length });
     } catch (error) {
-      console.error('鎵归�?Upsert 鏈€�?Pic 澶辫�?', error);
+      console.error('批量 Upsert 最小 Pic 失败:', error);
       throw error;
     }
   }
@@ -652,7 +652,7 @@ export class TursoService {
   }
 
   // ========================================
-  // 缁熻鏂规硶
+  // 统计方法
   // ========================================
 
   /**
@@ -664,7 +664,7 @@ export class TursoService {
       const result = await this.client.execute('SELECT COUNT(*) as count FROM pic');
       return Number(result.rows[0].count) || 0;
     } catch (error) {
-      console.error('鑾峰彇鎬诲浘鐗囨暟閲忓け�?', error);
+      console.error('获取总图片数量失败:', error);
       return 0;
     }
   }
@@ -680,14 +680,14 @@ export class TursoService {
       );
       return Number(result.rows[0].count) || 0;
     } catch (error) {
-      console.error('鑾峰彇宸蹭笅杞藉浘鐗囨暟閲忓け璐?', error);
+      console.error('获取已下载图片数量失败:', error);
       return 0;
     }
   }
 
   /**
-   * 鑾峰彇骞冲潎鐑�?
-   * @returns 骞冲潎鐑害�?
+   * 获取平均热度
+   * @returns 平均热度值
    */
   async getAveragePopularity(): Promise<number> {
     try {
@@ -695,14 +695,14 @@ export class TursoService {
       const avgPop = result.rows[0].avg_pop;
       return avgPop ? Number(Number(avgPop).toFixed(4)) : 0;
     } catch (error) {
-      console.error('鑾峰彇骞冲潎鐑害澶辫触:', error);
+      console.error('获取平均热度失败:', error);
       return 0;
     }
   }
 
   /**
-   * 鑾峰彇缁熻淇℃伅锛堟ā鎷熻鍥炬煡璇級
-   * @returns 缁熻瀵硅�?
+   * 获取统计信息（模拟视图查询）
+   * @returns 统计对象
    */
   async getStatsFromView(): Promise<{ totalPics: number; downloadedPics: number; avgPopularity: number }> {
     try {
@@ -721,35 +721,35 @@ export class TursoService {
         avgPopularity: row.avg_popularity ? Number(Number(row.avg_popularity).toFixed(4)) : 0
       };
     } catch (error) {
-      console.error('鑾峰彇缁熻淇℃伅澶辫触:', error);
+      console.error('获取统计信息失败:', error);
       return { totalPics: 0, downloadedPics: 0, avgPopularity: 0 };
     }
   }
 
   /**
-   * 闅忔満鑾峰�?PID 鍒楄�?
+   * 随机获取 PID 列表
    * @param count 数量
    * @returns PID 数组
    */
   async getRandomPids(count: number = 10): Promise<string[]> {
     try {
-      // SQLite 浣跨�?RANDOM() 鍑芥�?
+      // SQLite 使用 RANDOM() 函数
       const result = await this.client.execute({
         sql: 'SELECT pid FROM pic ORDER BY RANDOM() LIMIT ?',
         args: [count]
       });
 
       const pids = result.rows.map(row => row.pid as string);
-      console.log(`闅忔満鑾峰�?${pids.length} �?PID`);
+      console.log(`随机获取 ${pids.length} 个 PID`);
       return pids;
     } catch (error) {
-      console.error('闅忔満鑾峰�?PID 澶辫�?', error);
+      console.error('随机获取 PID 失败:', error);
       return [];
     }
   }
 
   /**
-   * 鏍规嵁鏍囩鑾峰�?PID 鍒楄�?
+   * 根据标签获取 PID 列表
    * @param tags 包含的标签
    * @param unsupportTags 排除的标签
    * @param limit 数量限制
@@ -760,13 +760,13 @@ export class TursoService {
       let sql = 'SELECT pid FROM pic WHERE unfit = 0';
       const args: any[] = [];
 
-      // 娣诲姞鏍囩鍖呭惈鏉′欢
+    // 添加标签包含条件
       for (const tag of tags) {
         sql += ' AND tag LIKE ?';
         args.push(`%${tag}%`);
       }
 
-      // 娣诲姞鏍囩鎺掗櫎鏉′欢
+    // 添加标签排除条件
       for (const tag of unsupportTags) {
         sql += ' AND tag NOT LIKE ?';
         args.push(`%${tag}%`);
@@ -778,7 +778,7 @@ export class TursoService {
       const result = await this.client.execute({ sql, args });
       return result.rows.map(row => row.pid as string);
     } catch (error) {
-      console.error('鏍规嵁鏍囩鑾峰�?PID 澶辫�?', error);
+      console.error('根据标签获取 PID 失败:', error);
       return [];
     }
   }
@@ -819,7 +819,7 @@ export class TursoService {
 
       return result.rows.map(row => row.pid as string);
     } catch (error) {
-      console.error('鑾峰彇棰勮鍊欓�?PID 澶辫�?', error);
+      console.error('获取预览候选 PID 失败:', error);
       return [];
     }
   }
@@ -1483,10 +1483,10 @@ export class TursoService {
   }
 
   // ========================================
-  // pic_task 琛ㄦ搷浣?  // ========================================
+  // pic_task 表操作  // ========================================
 
   /**
-   * 鍒涘缓鎴栨洿�?pic_task 璁板�?
+   * 创建或更新 pic_task 记录
    * @param pid 图片ID
    */
   async createOrUpdatePicTask(pid: string, options?: PicTaskUpsertOptions): Promise<void> {
@@ -1705,9 +1705,9 @@ export class TursoService {
         args: [now, count, now, pid]
       });
 
-      console.log('更新插画推荐状态完�?', { pid, count });
+      console.log('更新插画推荐状态完成:', { pid, count });
     } catch (error) {
-      console.error('更新插画推荐状态失�?', error);
+      console.error('更新插画推荐状态失败:', error);
       throw error;
     }
   }
@@ -1730,9 +1730,9 @@ export class TursoService {
         args: [now, count, now, pid]
       });
 
-      console.log('更新作者推荐状态完�?', { pid, count });
+      console.log('更新作者推荐状态完成:', { pid, count });
     } catch (error) {
-      console.error('更新作者推荐状态失�?', error);
+      console.error('更新作者推荐状态失败:', error);
       throw error;
     }
   }
@@ -1754,9 +1754,9 @@ export class TursoService {
         args: [now, now, pid]
       });
 
-      console.log('更新详情信息状态完�?', { pid });
+      console.log('更新详细信息状态完成:', { pid });
     } catch (error) {
-      console.error('更新详情信息状态失�?', error);
+      console.error('更新详细信息状态失败:', error);
       throw error;
     }
   }
@@ -1785,7 +1785,7 @@ export class TursoService {
 
       return result.rows.map(row => row.pid as string);
     } catch (error) {
-      console.error('获取未完成任务失�?', error);
+      console.error('获取未完成任务失败:', error);
       return [];
     }
   }
@@ -2442,7 +2442,7 @@ export class TursoService {
     type: 'daily' | 'weekly' | 'monthly'
   ): Promise<void> {
     if (!items || items.length === 0) {
-      console.log('鎺掕姒滄暟鎹负绌猴紝璺宠繃鍐欏叆');
+      console.log('排行榜数据为空，跳过写入');
       return;
     }
 
@@ -2460,9 +2460,9 @@ export class TursoService {
 
       await this.client.batch(statements);
 
-      console.log('鎺掕姒滃啓鍏ュ畬鎴?', { type, rankDate, count: items.length });
+      console.log('排行榜写入完成:', { type, rankDate, count: items.length });
     } catch (error) {
-      console.error('鎺掕姒滃啓鍏ュけ璐?', error);
+      console.error('排行榜写入失败:', error);
       throw error;
     }
   }
@@ -2472,7 +2472,7 @@ export class TursoService {
   // ========================================
 
   /**
-   * 灏嗘暟鎹簱琛岃浆鎹负 DatabasePic 瀵硅�?
+   * 将数据库行转换为 DatabasePic 对象
    */
   private rowToDatabasePic(row: any): DatabasePic {
     return {
@@ -2507,7 +2507,7 @@ export class TursoService {
   }
 
   /**
-   * 灏嗘暟鎹簱琛岃浆鎹负 PicTask 瀵硅�?
+   * 将数据库行转换为 PicTask 对象
    */
   private rowToPicTask(row: any): PicTask {
     return {
@@ -2580,18 +2580,18 @@ export class TursoService {
   }
 
   /**
-   * 鍚屾鏈湴鍓湰 (鐢ㄤ�?Local Read Replica 妯″紡)
-   * 鍦ㄤ笢浜湇鍔″櫒涓婂畾鏈熻皟鐢ㄤ互淇濇寔鏁版嵁鍚屾
+   * 同步本地副本 (用于 Local Read Replica 模式)
+   * 在东京服务器上定期调用以保持数据同步
    */
   async sync(): Promise<void> {
     try {
-      // @libsql/client 浼氳嚜鍔ㄥ鐞嗗悓姝ワ紝杩欓噷鍙槸鏄惧紡瑙﹀�?
-      console.log('瑙﹀�?Turso 鏈湴鍓湰鍚屾�?..');
-      // 鎵ц涓€涓交閲忔煡璇㈡潵瑙﹀彂鍚屾
+      // @libsql/client 会自动处理同步，这里只是显式触发
+      console.log('触发 Turso 本地副本同步...');
+      // 执行一个轻量查询来触发同步
       await this.client.execute('SELECT 1');
       console.log('Turso sync complete');
     } catch (error) {
-      console.error('Turso 鍚屾澶辫触:', error);
+      console.error('Turso 同步失败:', error);
     }
   }
 
