@@ -1,4 +1,4 @@
-import { createClient } from '@libsql/client';
+import { createLibsqlClient, isFileUrl } from './client';
 import * as fs from 'fs';
 import * as path from 'path';
 import dotenv from 'dotenv';
@@ -39,18 +39,21 @@ function splitStatements(sql: string): string[] {
 async function initDatabase() {
   const url = process.env.TURSO_DATABASE_URL  ;
   const authToken = process.env.TURSO_AUTH_TOKEN ;
-  if (!url || !authToken) {
-    console.error('错误: 缺少 TURSO_DATABASE_URL 或 TURSO_AUTH_TOKEN 环境变量');
+  if (!url) {
+    console.error('错误: 缺少 TURSO_DATABASE_URL 环境变量');
+    process.exit(1);
+  }
+  // 本地 file: 模式不需要 token
+  if (!isFileUrl(url) && !authToken) {
+    console.error('错误: 远程 Turso URL 缺少 TURSO_AUTH_TOKEN 环境变量');
     process.exit(1);
   }
 
-  console.log('正在连接 Turso 数据库...');
+  console.log('正在连接数据库...');
   console.log('URL:', url.substring(0, 30) + '...');
+  console.log('模式:', isFileUrl(url) ? 'local-file' : 'remote');
 
-  const client = createClient({
-    url,
-    authToken
-  });
+  const client = createLibsqlClient({ url, authToken });
 
   try {
     // 读取 schema.sql 文件

@@ -103,9 +103,12 @@ pm2 start dist/index.js --name pixiv-crawler
 ### 东京服务器目录 (server/)
 
 - `server/src/index.ts` - 服务器入口，HTTP API 服务
-- `server/src/db/turso.ts` - Turso (libSQL) 数据库服务，支持 Local Read Replica
+- `server/src/db/turso.ts` - libSQL 数据库服务（本地 SQLite 文件为主，云端 Turso 冷备）
 - `server/src/db/schema.sql` - SQLite 表结构定义
-- `server/src/config/` - 环境配置（Turso + B2）
+- `server/src/db/client.ts` - libsql 客户端，file: 模式自动开 WAL
+- `server/src/scripts/export-cloud-to-local.ts` - 一次性把云端 Turso 数据导到本地文件
+- `server/src/scripts/backup-local-to-cloud.ts` - 定时把本地文件增量备份到云端 Turso
+- `server/src/config/` - 环境配置（本地 SQLite + B2）
 - `server/src/types/` - 类型定义
 - `server/src/utils/` - 工具函数
 
@@ -191,24 +194,30 @@ popularity = (点赞数 × 0.55 + 收藏数 × 0.45) ÷ 浏览量
 
 ### 数据库差异
 
-| 特性 | Vercel (Supabase) | 东京服务器 (Turso) |
+| 特性 | Vercel (Supabase) | 东京服务器 (Turso/libSQL) |
 |------|-------------------|-------------------|
 | 数据库类型 | PostgreSQL | SQLite (libSQL) |
 | 查询语法 | Supabase SDK | 原生 SQL |
 | Upsert | `.upsert()` | `ON CONFLICT DO UPDATE` |
-| 本地副本 | 无 | Local Read Replica |
+| 部署形态 | 托管 Postgres | 本地 SQLite 文件为主，云端 Turso 做异地冷备 |
+
+> 东京服务器默认以本地 SQLite 文件为主库（`TURSO_DATABASE_URL=file:./data/pixiv.db`），
+> 彻底绕开 Turso 云端的 SQL 免费额度；`scripts/backup-local-to-cloud.ts` 定时把增量 upsert 到云端 Turso 做冷备。
 
 ### Turso 环境变量
 
 ```env
-TURSO_DATABASE_URL=libsql://xxx.turso.io
-TURSO_AUTH_TOKEN=your_token
-TURSO_SYNC_URL=file:///path/to/local.db  # 可选，启用本地副本
+# 本地为主（推荐）：直接用本地文件，不需要 token
+TURSO_DATABASE_URL=file:./data/pixiv.db
+
+# 异地冷备目标（可选）
+TURSO_BACKUP_URL=libsql://xxx.turso.io
+TURSO_BACKUP_AUTH_TOKEN=your_token
 ```
 
 ### TursoService 关键方法
 
 - `upsertPic(pic)` - 使用 `ON CONFLICT(pid) DO UPDATE` 实现 upsert
-- `existsPid(pid)` - 高性能去重检查（利用本地副本可达微秒级）
+- `existsPid(pid)` - 高性能去重检查（本地文件直读，微秒级）
 - `getExistingPids(pids)` - 批量去重检查
 - `batchCreatePicTasks(pids)` - 使用事务批量创建任务

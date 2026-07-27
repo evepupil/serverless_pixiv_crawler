@@ -8,10 +8,13 @@
     "dev": "ts-node src/index.ts",
     "start": "node dist/index.js",
     "db:init": "npm run db:push",
+    "db:init-sql": "ts-node src/db/init.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "db:export-cloud": "ts-node src/scripts/export-cloud-to-local.ts",
+    "db:backup-cloud": "ts-node src/scripts/backup-local-to-cloud.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.864.0",

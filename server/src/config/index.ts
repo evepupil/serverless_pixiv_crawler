@@ -1,4 +1,5 @@
 import dotenv from 'dotenv';
+import { isFileUrl } from '../db/client';
 import { Config, PixivHeaders, B2Config, TursoConfig } from '../types';
 
 // 加载环境变量
@@ -90,8 +91,12 @@ export function getTursoConfig(): TursoConfig {
   const authToken = process.env.TURSO_AUTH_TOKEN;
   const syncUrl = process.env.TURSO_SYNC_URL; // 本地同步 URL（可选）
 
-  if (!url || !authToken) {
-    throw new Error('Turso 环境变量未完整配置，需要: TURSO_DATABASE_URL, TURSO_AUTH_TOKEN');
+  if (!url) {
+    throw new Error('Turso 环境变量未配置，需要: TURSO_DATABASE_URL');
+  }
+  // 本地 file: 模式不需要 token
+  if (!isFileUrl(url) && !authToken) {
+    throw new Error('Turso 远程 URL 需要配置 TURSO_AUTH_TOKEN');
   }
 
   return {
@@ -140,7 +145,6 @@ export function getB2Config(): B2Config {
 export function checkEnvironmentVariables(): { valid: boolean; missing: string[] } {
   const required = [
     'TURSO_DATABASE_URL',
-    'TURSO_AUTH_TOKEN',
     'PIXIV_COOKIE'
   ];
 
@@ -150,6 +154,15 @@ export function checkEnvironmentVariables(): { valid: boolean; missing: string[]
     const value = process.env[envVar];
     if (!value || value === `your_${envVar.toLowerCase()}_here`) {
       missing.push(envVar);
+    }
+  }
+
+  // 远程 libsql 才需要 token；本地 file: 模式不需要
+  const tursoUrl = process.env.TURSO_DATABASE_URL;
+  if (tursoUrl && !isFileUrl(tursoUrl)) {
+    const token = process.env.TURSO_AUTH_TOKEN;
+    if (!token || token === 'your_auth_token_here') {
+      missing.push('TURSO_AUTH_TOKEN');
     }
   }
 

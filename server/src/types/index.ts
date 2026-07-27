@@ -268,7 +268,7 @@ export interface R2Config {
 // ========================================
 
 export interface TursoConfig {
-  url: string;              // Turso 数据库 URL
-  authToken: string;        // 认证令牌
-  syncUrl?: string;         // 本地同步 URL (用于 Local Read Replica)
+  url: string;              // 数据库 URL（本地 file: 或远程 libsql://）
+  authToken?: string;      // 认证令牌（仅远程需要，本地 file: 模式可省略）
+  syncUrl?: string;        // 远程嵌入式副本 URL（本地 file: 模式忽略）
 }

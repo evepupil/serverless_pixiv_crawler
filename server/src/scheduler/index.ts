@@ -83,7 +83,12 @@ function getSchedulerConfig() {
 
     reconcileStorageInterval: minuteToMs(parseInt(process.env.SCHEDULER_RECONCILE_STORAGE_INTERVAL || '1440')),
     reconcileStorageLimit: parseInt(process.env.SCHEDULER_RECONCILE_STORAGE_LIMIT || '50'),
-    reconcileStorageEnabled: parseBool(process.env.SCHEDULER_RECONCILE_STORAGE_ENABLED, false)
+    reconcileStorageEnabled: parseBool(process.env.SCHEDULER_RECONCILE_STORAGE_ENABLED, false),
+
+    // candidate_score 定时刷新（替代每次写入时的同步重算，把写入量降下来）
+    candidateScoreRefreshInterval: minuteToMs(parseInt(process.env.SCHEDULER_CANDIDATE_SCORE_REFRESH_INTERVAL || '10')),
+    candidateScoreRefreshLimit: parseInt(process.env.SCHEDULER_CANDIDATE_SCORE_REFRESH_LIMIT || process.env.CANDIDATE_SCORE_REFRESH_LIMIT || '500'),
+    candidateScoreRefreshEnabled: parseBool(process.env.SCHEDULER_CANDIDATE_SCORE_REFRESH_ENABLED, true)
   };
 }
 
@@ -240,6 +245,17 @@ export class TaskScheduler {
           limit: config.reconcileStorageLimit
         },
         enabled: config.reconcileStorageEnabled
+      },
+      {
+        name: 'Refresh candidate score',
+        action: 'refresh-candidate-score',
+        method: 'POST',
+        interval: config.candidateScoreRefreshInterval,
+        body: {
+          action: 'refresh-candidate-score',
+          limit: config.candidateScoreRefreshLimit
+        },
+        enabled: config.candidateScoreRefreshEnabled
       }
     ];
 

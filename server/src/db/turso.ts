@@ -184,7 +184,7 @@ export class TursoService {
   /**
    * 鍒涘缓鎴栨洿�?Pic 璁板�?(Upsert)
    * 浣跨�?SQLite �?ON CONFLICT(pid) DO UPDATE 璇�?
-   * @param pic 鍥剧墖鏁版嵁
+   * @param pic 图片数据
    */
   async upsertPic(pic: DatabasePic): Promise<void> {
     const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
@@ -290,7 +290,7 @@ export class TursoService {
 
   /**
    * 鍒涘�?Pic 璁板�?(鍏煎鏃ф帴鍙?
-   * @param pic 鍥剧墖鏁版嵁
+   * @param pic 图片数据
    */
   async createPic(pic: DatabasePic): Promise<void> {
     return this.upsertPic(pic);
@@ -298,7 +298,7 @@ export class TursoService {
 
   /**
    * 鏍规�?PID 鑾峰�?Pic 璁板�?
-   * @param pid 鍥剧墖ID
+   * @param pid 图片ID
    * @returns DatabasePic �?null
    */
   async getPicByPid(pid: string): Promise<DatabasePic | null> {
@@ -322,7 +322,7 @@ export class TursoService {
   /**
    * 妫€�?PID 鏄惁宸插瓨鍦紙楂樻€ц兘鍘婚噸妫€鏌ワ�?
    * 鍒╃�?Local Read Replica 鍙疄鐜板井绉掔骇鏌ヨ
-   * @param pid 鍥剧墖ID
+   * @param pid 图片ID
    * @returns 鏄惁瀛樺�?
    */
   async existsPid(pid: string): Promise<boolean> {
@@ -340,7 +340,7 @@ export class TursoService {
 
   /**
    * 鎵归噺妫€鏌?PID 鏄惁宸插瓨鍦紙楂樻€ц兘鎵归噺鍘婚噸锛?
-   * @param pids PID 鏁扮�?
+   * @param pids PID 数组
    * @returns 宸插瓨鍦ㄧ殑 PID 闆嗗�?
    */
   async getExistingPids(pids: string[]): Promise<Set<string>> {
@@ -367,9 +367,9 @@ export class TursoService {
 
   /**
    * 鏇存�?Pic 涓嬭浇淇℃伅
-   * @param pid 鍥剧墖ID
+   * @param pid 图片ID
    * @param path 瀛樺偍璺緞锛堜笉甯﹀煙鍚嶅墠缂€�?
-   * @param imgUrl 鍥剧墖URL
+   * @param imgUrl 图片URL
    * @param fileSize 鏂囦欢澶у皬锛堝彲閫夛�?
    */
   async updatePicDownload(pid: string, path: string, imgUrl: string, fileSize?: number): Promise<void> {
@@ -484,7 +484,7 @@ export class TursoService {
 
   /**
    * 鏈€灏忓寲鎵归噺鎻掑�?鏇存�?Pic (�?pid)
-   * @param pids PID 鏁扮�?
+   * @param pids PID 数组
    */
   async replacePicArchiveState(
     pid: string,
@@ -586,7 +586,7 @@ export class TursoService {
     const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
 
     try {
-      // 浣跨敤浜嬪姟鎵归噺鎻掑叆
+      // 执行一个轻量查询来触发同步
       const statements = uniquePids.map(pid => ({
         sql: `
           INSERT INTO pic (
@@ -656,8 +656,8 @@ export class TursoService {
   // ========================================
 
   /**
-   * 鑾峰彇鎬诲浘鐗囨暟閲?
-   * @returns 鎬绘暟閲?
+   * 获取总图片数量
+   * @returns 总数量
    */
   async getTotalPicsCount(): Promise<number> {
     try {
@@ -670,8 +670,8 @@ export class TursoService {
   }
 
   /**
-   * 鑾峰彇宸蹭笅杞藉浘鐗囨暟�?
-   * @returns 宸蹭笅杞芥暟�?
+   * 获取已下载图片数量
+   * @returns 已下载数量
    */
   async getDownloadedPicsCount(): Promise<number> {
     try {
@@ -728,8 +728,8 @@ export class TursoService {
 
   /**
    * 闅忔満鑾峰�?PID 鍒楄�?
-   * @param count 鏁伴�?
-   * @returns PID 鏁扮�?
+   * @param count 数量
+   * @returns PID 数组
    */
   async getRandomPids(count: number = 10): Promise<string[]> {
     try {
@@ -750,10 +750,10 @@ export class TursoService {
 
   /**
    * 鏍规嵁鏍囩鑾峰�?PID 鍒楄�?
-   * @param tags 鍖呭惈鐨勬爣�?
-   * @param unsupportTags 鎺掗櫎鐨勬爣�?
-   * @param limit 鏁伴噺闄愬埗
-   * @returns PID 鏁扮�?
+   * @param tags 包含的标签
+   * @param unsupportTags 排除的标签
+   * @param limit 数量限制
+   * @returns PID 数组
    */
   async getPicsByTags(tags: string[], unsupportTags: string[] = [], limit: number = 6): Promise<string[]> {
     try {
@@ -1487,7 +1487,7 @@ export class TursoService {
 
   /**
    * 鍒涘缓鎴栨洿�?pic_task 璁板�?
-   * @param pid 鍥剧墖ID
+   * @param pid 图片ID
    */
   async createOrUpdatePicTask(pid: string, options?: PicTaskUpsertOptions): Promise<void> {
     const now = this.now();
@@ -2468,7 +2468,7 @@ export class TursoService {
   }
 
   // ========================================
-  // 杈呭姪鏂规硶
+  // 辅助方法
   // ========================================
 
   /**
@@ -2596,7 +2596,7 @@ export class TursoService {
   }
 
   /**
-   * 鍏抽棴鏁版嵁搴撹繛鎺?
+   * 关闭数据库连接
    */
   async close(): Promise<void> {
     this.client.close();

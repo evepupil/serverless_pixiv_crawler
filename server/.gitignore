@@ -1,0 +1,11 @@
+# 本地 SQLite 数据库与 WAL 边车文件
+data/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
+# 备份状态文件
+data/.backup-state.json
