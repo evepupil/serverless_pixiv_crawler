@@ -1,0 +1,6 @@
+# 微信公众号自动化 HTTP 服务依赖
+# Python >= 3.10
+fastapi>=0.110
+uvicorn[standard]>=0.27
+requests>=2.31
+Pillow>=10.0

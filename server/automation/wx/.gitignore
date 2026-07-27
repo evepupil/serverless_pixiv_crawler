@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# 敏感配置与运行时缓存（不要提交）
+accounts.json
+token_cache.json
+.env
+.env.local
+
+# 日志与临时
+*.log
+logs/
+tmp/
+.DS_Store

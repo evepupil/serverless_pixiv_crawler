@@ -1,0 +1,16 @@
+{
+  "accounts": [
+    {
+      "name": "demo_mp",
+      "appid": "wx_your_appid",
+      "secret": "wx_your_secret",
+      "author": "编辑部",
+      "title_template": "每日萌图 {date}",
+      "digest": "喜欢的话就点个在看吧",
+      "thumb_media_id": "",
+      "default_thumb_path": "",
+      "need_open_comment": 1,
+      "only_fans_can_comment": 1
+    }
+  ]
+}
