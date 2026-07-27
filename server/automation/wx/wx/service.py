@@ -81,7 +81,7 @@ def publish_article(account: str | AccountConfig, spec: ArticleSpec) -> PublishR
             logger.warning("正文图部分失败: %d/%d", ok_count, len(uploaded))
 
         # 3. 拼 content + 建草稿
-        content = build_content(uploaded, spec.intro)
+        content = build_content(uploaded, spec.intro, spec.template)
         media_id = client.add_draft(spec, content, thumb_media_id)
         result.media_id = media_id
         logger.info("草稿创建成功 media_id=%s", media_id)

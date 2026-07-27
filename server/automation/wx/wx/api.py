@@ -50,6 +50,7 @@ class PublishRequest(BaseModel):
     use_default_title: bool = Field(True, description="title 为空时是否用账号模板生成标题")
     pids: list[str] | None = Field(None, description="作品 pid;与 image_paths 二选一,服务端用 proxy 拉图")
     image_size: str = Field("regular", description="pids 模式下拉这个尺寸")
+    template: str = Field("default", description="正文模板名,对应 wx/templates/<name>.html")
 
 
 class MaterialUploadRequest(BaseModel):
@@ -104,6 +105,7 @@ def _to_spec(req: PublishRequest) -> tuple[str, ArticleSpec]:
         only_fans_can_comment=req.only_fans_can_comment,
         pids=req.pids or [],
         image_size=req.image_size or "regular",
+        template=req.template or "default",
     )
     return req.account, spec
 

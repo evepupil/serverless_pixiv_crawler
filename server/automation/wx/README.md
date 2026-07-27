@@ -14,6 +14,7 @@
 - **token 稳**：用 `stable_token` + 进程内/文件双层缓存，遇 `40001` 自动强刷重试，避免并发刷新互踩
 - **正文图自动压缩**：`media/uploadimg` 单图限 1MB，服务自动压到 1MB 内再传
 - **多账号**：`accounts.json` 管理多个公众号
+- **模板化正文**：content 抽成独立模板（`wx/templates/*.html`），默认沿用秀米风格（关注引导 + 底部免责声明），支持 `{{INTRO}}`/`{{IMAGES}}` 占位，调用时可指定模板
 - **HTTP 服务**：FastAPI，`X-API-Key` 鉴权（与主服务风格一致），默认只绑 127.0.0.1
 - **一并启动**：pm2 同时拉起 TS 主服务 + 本服务
 
@@ -37,7 +38,9 @@ server/automation/wx/
 │   ├── content.py            # content HTML 拼装
 │   ├── client.py             # WeixinClient：微信 API 封装
 │   ├── service.py            # publish_article 一键编排
-│   └── api.py                # FastAPI 路由
+│   ├── api.py                # FastAPI 路由
+│   └── templates/
+│       └── default.html      # 正文模板（秀米风格，{{INTRO}}/{{IMAGES}} 占位）
 └── examples/
     └── client_demo.py        # 调用示例
 ```
@@ -132,6 +135,14 @@ curl -X POST http://127.0.0.1:3004/publish \
 - `cover_path`：封面图。不传且账号没配 `thumb_media_id` 时，会用第一张正文图当封面
 - `submit_publish`：`false` 只存草稿；`true` 存草稿后直接提交发布（异步审核，返回 `publish_id`）
 - 返回 `media_id`（草稿 id），后续可用于发布/删除/查询
+
+## 正文模板
+
+正文 content 由「模板 + 图片」拼成，模板独立放在 `wx/templates/`，改样式不用动代码：
+
+- `default.html`：默认模板，沿用秀米风格——顶部装饰 gif +「点击蓝字关注我们」+ 分隔线 + `[前言]` + `[正文图片，每张带灰色文件名标注]` + 底部「图片源自网络，侵立删 / 点个在看」+ 装饰
+- 两个占位符：`{{INTRO}}`（前言，可选）、`{{IMAGES}}`（正文图片，自动填入）
+- 换模板：在 `wx/templates/` 放一个 `<名字>.html`（带上这两个占位符），调用 `/publish` 时传 `"template": "<名字>"`
 
 ## 端点一览
 

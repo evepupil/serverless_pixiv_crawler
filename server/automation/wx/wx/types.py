@@ -48,6 +48,8 @@ class ArticleSpec:
     pids: list[str] = field(default_factory=list)
     # pids 模式下拉这个尺寸(regular / original / small / thumb_mini)
     image_size: str = "regular"
+    # 正文模板名(对应 wx/templates/<name>.html),默认 default(秀米风格)
+    template: str = "default"
 
 
 @dataclass
