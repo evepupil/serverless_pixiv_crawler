@@ -52,8 +52,8 @@ module.exports = {
     },
     {
       name: 'wx-server',
-      // 如系统里是 python 而非 python3，改成 'python'
-      interpreter: 'python3',
+      // 用 wx 服务的 venv(依赖装在 .venv,系统 python3 没有 fastapi)
+      interpreter: path.join(__dirname, 'automation/wx/.venv/bin/python'),
       script: 'automation/wx/main.py',
       cwd: __dirname,
       env: { ...envLocal },
