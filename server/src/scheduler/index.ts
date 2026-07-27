@@ -99,6 +99,7 @@ function getSchedulerConfig() {
 export class TaskScheduler {
   private port: number;
   private logManager: ILogManager;
+  private apiKey: string | undefined;
   private timers: Map<string, NodeJS.Timeout> = new Map();
   private isRunning: boolean = false;
   private tasks: TaskConfig[] = [];
@@ -106,6 +107,7 @@ export class TaskScheduler {
   constructor(port: number, logManager: ILogManager) {
     this.port = port;
     this.logManager = logManager;
+    this.apiKey = process.env.SERVER_API_KEY;
     this.initTasks();
   }
 
@@ -281,7 +283,8 @@ export class TaskScheduler {
         path: task.method === 'GET' ? `/?action=${task.action}` : '/',
         method: task.method,
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          ...(this.apiKey ? { 'X-API-Key': this.apiKey } : {})
         }
       };
 

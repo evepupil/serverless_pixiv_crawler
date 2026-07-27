@@ -1,4 +1,5 @@
 ﻿import http from 'http';
+import crypto from 'crypto';
 import path from 'path';
 import dotenv from 'dotenv';
 
@@ -1359,6 +1360,29 @@ async function handlePostAction(body: Record<string, any>, res: http.ServerRespo
   }
 }
 
+function headerAsString(value: string | string[] | undefined): string | undefined {
+  if (Array.isArray(value)) return value[0];
+  return value;
+}
+
+function extractApiKey(req: http.IncomingMessage): string | null {
+  const xApiKey = headerAsString(req.headers['x-api-key']);
+  if (xApiKey) return xApiKey;
+  const auth = headerAsString(req.headers['authorization']);
+  if (auth) {
+    const match = auth.match(/^Bearer\s+(.+)$/i);
+    if (match) return match[1].trim();
+  }
+  return null;
+}
+
+function isApiKeyValid(provided: string, expected: string): boolean {
+  const a = Buffer.from(provided);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
 async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse) {
   const url = req.url || '/';
   const method = req.method || 'GET';
@@ -1368,10 +1392,19 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     res.writeHead(200, {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type'
+      'Access-Control-Allow-Headers': 'Content-Type, X-API-Key, Authorization'
     });
     res.end();
     return;
+  }
+
+  const expectedApiKey = process.env.SERVER_API_KEY;
+  if (expectedApiKey) {
+    const provided = extractApiKey(req);
+    if (!provided || !isApiKeyValid(provided, expectedApiKey)) {
+      sendJson(res, 401, { error: 'Unauthorized', message: 'Missing or invalid API key' });
+      return;
+    }
   }
 
   try {
@@ -1411,6 +1444,12 @@ server.listen(PORT, () => {
     console.warn(`Missing required env vars: ${envCheck.missing.join(', ')}`);
   } else {
     console.log('Environment variables look good');
+  }
+
+  if (!process.env.SERVER_API_KEY) {
+    console.warn('WARNING: SERVER_API_KEY not set - HTTP API is unauthenticated!');
+  } else {
+    console.log('API key authentication enabled');
   }
 
   try {
