@@ -123,13 +123,13 @@ def mark(account: str, action: str, pids: list[str]) -> int:
     return n
 
 
-def list_approved(account: str, limit: int = 8) -> list[str]:
-    """发布 skill:拿已通过的 pid(按审核时间正序,先审先发)。"""
+def list_approved(account: str, column: str, limit: int = 8) -> list[str]:
+    """发布 skill:拿指定栏目的已通过 pid(按审核时间正序,先审先发)。"""
     c = _conn()
     rows = c.execute(
-        "SELECT pid FROM material WHERE account=? AND status='approved' "
+        "SELECT pid FROM material WHERE account=? AND status='approved' AND column_name=? "
         "ORDER BY reviewed_at ASC LIMIT ?",
-        (account, limit),
+        (account, column, limit),
     ).fetchall()
     c.close()
     return [r[0] for r in rows]

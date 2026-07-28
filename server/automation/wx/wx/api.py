@@ -263,8 +263,8 @@ def create_app() -> FastAPI:
         return {"added": n}
 
     @app.get("/api/approved", dependencies=[Depends(verify_api_key)])
-    async def get_approved(account: str, limit: int = 8) -> dict[str, Any]:
-        return {"pids": list_approved(account, limit)}
+    async def get_approved(account: str, column: str, limit: int = 8) -> dict[str, Any]:
+        return {"pids": list_approved(account, column, limit)}
 
     @app.post("/api/material/publish", dependencies=[Depends(verify_api_key)])
     async def post_publish_mark(req: PublishMarkRequest) -> dict[str, Any]:
