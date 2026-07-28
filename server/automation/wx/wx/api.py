@@ -31,7 +31,9 @@ from .material import (
     add_pending,
     init as material_init,
     list_approved,
+    list_all_pids,
     list_material,
+    review_candidates,
     list_pending,
     mark as material_mark,
     mark_published,
@@ -103,6 +105,14 @@ class MarkRequest(BaseModel):
 class PublishMarkRequest(BaseModel):
     account: str
     pids: list[str]
+
+
+class ReviewCandidatesRequest(BaseModel):
+    account: str
+    tags: list[str] = Field(default_factory=list)
+    exclude_tags: list[str] = Field(default_factory=list)
+    min_popularity: float = 0
+    limit: int = 20
 
 
 # ---------- 鉴权 ----------
@@ -265,6 +275,15 @@ def create_app() -> FastAPI:
     @app.get("/api/approved", dependencies=[Depends(verify_api_key)])
     async def get_approved(account: str, column: str, limit: int = 8) -> dict[str, Any]:
         return {"pids": list_approved(account, column, limit)}
+
+    @app.get("/api/material/pids", dependencies=[Depends(verify_api_key)])
+    async def get_material_pids(account: str) -> dict[str, Any]:
+        return {"pids": list_all_pids(account)}
+
+    @app.post("/api/review-candidates", dependencies=[Depends(verify_api_key)])
+    async def post_review_candidates(req: ReviewCandidatesRequest) -> dict[str, Any]:
+        items = review_candidates(req.account, req.tags, req.exclude_tags, req.min_popularity, req.limit)
+        return {"items": items}
 
     @app.post("/api/material/publish", dependencies=[Depends(verify_api_key)])
     async def post_publish_mark(req: PublishMarkRequest) -> dict[str, Any]:

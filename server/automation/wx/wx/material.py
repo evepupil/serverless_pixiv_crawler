@@ -123,6 +123,48 @@ def mark(account: str, action: str, pids: list[str]) -> int:
     return n
 
 
+def list_all_pids(account: str) -> list[str]:
+    """所有状态的 pid(review skill 拉候选去重用)。"""
+    c = _conn()
+    rows = c.execute("SELECT pid FROM material WHERE account=?", (account,)).fetchall()
+    c.close()
+    return [r[0] for r in rows]
+
+
+def review_candidates(
+    account: str,
+    tags: list[str],
+    exclude_tags: list[str],
+    min_popularity: float,
+    limit: int,
+) -> list[dict]:
+    """查 pic 表里不在该 account 的 material 里的图(没审过的),按 pid 倒序 + tag 过滤。
+
+    LEFT JOIN material:m.pid IS NULL = 没进过审核库,自动排除已审/待审/通过/丢弃/已发的。
+    """
+    c = _conn()
+    sql = (
+        "SELECT p.pid FROM pic p "
+        "LEFT JOIN material m ON m.pid = p.pid AND m.account = ? "
+        "WHERE m.pid IS NULL AND COALESCE(p.unfit, 0) = 0"
+    )
+    args: list = [account]
+    if tags:
+        sql += " AND (" + " OR ".join("p.tag LIKE ?" for _ in tags) + ")"
+        args += [f"%{t}%" for t in tags]
+    if exclude_tags:
+        sql += " AND " + " AND ".join("p.tag NOT LIKE ?" for _ in exclude_tags)
+        args += [f"%{t}%" for t in exclude_tags]
+    if min_popularity and min_popularity > 0:
+        sql += " AND COALESCE(p.popularity, 0) >= ?"
+        args += [min_popularity]
+    sql += " ORDER BY p.pid DESC LIMIT ?"
+    args += [limit]
+    rows = c.execute(sql, args).fetchall()
+    c.close()
+    return [{"pid": r[0]} for r in rows]
+
+
 def list_approved(account: str, column: str, limit: int = 8) -> list[str]:
     """发布 skill:拿指定栏目的已通过 pid(按审核时间正序,先审先发)。"""
     c = _conn()
