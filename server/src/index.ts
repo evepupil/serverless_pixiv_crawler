@@ -845,10 +845,22 @@ async function handlePostAction(body: Record<string, any>, res: http.ServerRespo
           for (const pid of uncompletedPids) {
             try {
               const crawler = new PixivCrawler(pid, headersList, logManager, taskId, threshold, db);
-              if (taskType === 'illust_recommend') {
-                await crawler.getIllustRecommendPids(pid, 30);
-              } else if (taskType === 'author_recommend') {
-                await crawler.getAuthorRecommendPids(pid, 30);
+              if (taskType === 'illust_recommend' || taskType === 'author_recommend') {
+                // 递归扩散前过滤：已知低热度的 pid 不再向外扩散，直接标记任务完成
+                const pic = await db.getPicByPid(pid);
+                if (pic && typeof pic.popularity === 'number' && pic.popularity < threshold) {
+                  if (taskType === 'illust_recommend') {
+                    await db.updateIllustRecommendStatus(pid, 0);
+                  } else {
+                    await db.updateAuthorRecommendStatus(pid, 0);
+                  }
+                  continue;
+                }
+                if (taskType === 'illust_recommend') {
+                  await crawler.getIllustRecommendPids(pid, 30);
+                } else {
+                  await crawler.getAuthorRecommendPids(pid, 30);
+                }
               } else {
                 await crawler.getPidDetailInfo(pid);
               }

@@ -89,7 +89,10 @@ function getSchedulerConfig() {
     // candidate_score 定时刷新（替代每次写入时的同步重算，把写入量降下来）
     candidateScoreRefreshInterval: minuteToMs(parseInt(process.env.SCHEDULER_CANDIDATE_SCORE_REFRESH_INTERVAL || '10')),
     candidateScoreRefreshLimit: parseInt(process.env.SCHEDULER_CANDIDATE_SCORE_REFRESH_LIMIT || process.env.CANDIDATE_SCORE_REFRESH_LIMIT || '500'),
-    candidateScoreRefreshEnabled: parseBool(process.env.SCHEDULER_CANDIDATE_SCORE_REFRESH_ENABLED, true)
+    candidateScoreRefreshEnabled: parseBool(process.env.SCHEDULER_CANDIDATE_SCORE_REFRESH_ENABLED, true),
+
+    // 热度阈值：popularity 低于此值不爬详情、不递归扩散，减少垃圾图入库
+    popularityThreshold: parseFloat(process.env.SCHEDULER_POPULARITY_THRESHOLD || '0.15')
   };
 }
 
@@ -160,7 +163,8 @@ export class TaskScheduler {
         body: {
           action: 'crawl-uncompleted',
           taskType: 'illust_recommend',
-          limit: config.illustRecommendLimit
+          limit: config.illustRecommendLimit,
+          threshold: config.popularityThreshold
         },
         enabled: true
       },
@@ -172,7 +176,8 @@ export class TaskScheduler {
         body: {
           action: 'crawl-uncompleted',
           taskType: 'author_recommend',
-          limit: config.authorRecommendLimit
+          limit: config.authorRecommendLimit,
+          threshold: config.popularityThreshold
         },
         enabled: true
       },
@@ -184,7 +189,8 @@ export class TaskScheduler {
         body: {
           action: 'crawl-uncompleted',
           taskType: 'detail_info',
-          limit: config.detailInfoLimit
+          limit: config.detailInfoLimit,
+          threshold: config.popularityThreshold
         },
         enabled: true
       },
