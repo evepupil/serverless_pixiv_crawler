@@ -158,7 +158,7 @@ def review_candidates(
     if min_popularity and min_popularity > 0:
         sql += " AND COALESCE(p.popularity, 0) >= ?"
         args += [min_popularity]
-    sql += " ORDER BY p.pid DESC LIMIT ?"
+    sql += " ORDER BY CAST(p.pid AS INTEGER) DESC LIMIT ?"
     args += [limit]
     rows = c.execute(sql, args).fetchall()
     c.close()
