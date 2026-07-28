@@ -11,22 +11,40 @@ body { font-family: -apple-system, "Segoe UI", sans-serif; background: #f5f5f5; 
 .login h2 { margin-bottom: 16px; }
 .login input { width: 100%; padding: 8px; margin-bottom: 12px; border: 1px solid #ddd; border-radius: 4px; }
 .btn { background: #07c160; color: #fff; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; }
-.btn:hover { background: #06ad56; }
-.btn-gray { background: #888; }
-.btn-gray:hover { background: #777; }
 .tabs { display: flex; background: #fff; border-bottom: 1px solid #ddd; }
 .tab { padding: 12px 24px; cursor: pointer; border-bottom: 2px solid transparent; }
 .tab.active { border-bottom-color: #07c160; font-weight: bold; }
 .toolbar { padding: 12px; background: #fff; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 select { padding: 6px; border: 1px solid #ddd; border-radius: 4px; }
+.hint { font-size: 12px; color: #888; }
+
+/* 单张审核 */
+.single { display: flex; flex-direction: column; align-items: center; padding: 16px; }
+.single-img { max-height: 60vh; max-width: 100%; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+.pid-badge { background: rgba(0,0,0,.6); color: #fff; padding: 4px 10px; border-radius: 4px; margin-top: 8px; font-size: 13px; }
+.big-actions { display: flex; gap: 24px; margin-top: 20px; }
+.big-btn { padding: 18px 48px; font-size: 20px; border: none; border-radius: 10px; cursor: pointer; color: #fff; font-weight: bold; min-width: 160px; }
+.big-approve { background: #07c160; }
+.big-approve:hover { background: #06ad56; }
+.big-discard { background: #e94d4d; }
+.big-discard:hover { background: #d33; }
+.big-btn:disabled { background: #ccc; cursor: not-allowed; }
+.refresh-bar { margin-top: 16px; display: flex; gap: 12px; align-items: center; }
+.btn-gray { background: #888; color: #fff; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; }
+.btn-gray:hover { background: #777; }
+.empty { text-align: center; padding: 60px; color: #888; font-size: 18px; }
+
+/* 素材库网格 */
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; padding: 12px; }
 .card { background: #fff; border-radius: 8px; overflow: hidden; position: relative; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
 .card img { width: 100%; height: 220px; object-fit: cover; display: block; background: #eee; }
 .card .cb { position: absolute; top: 6px; right: 6px; width: 22px; height: 22px; accent-color: #07c160; }
 .card .badge { position: absolute; top: 6px; left: 6px; background: rgba(0,0,0,.6); color: #fff; padding: 2px 6px; border-radius: 3px; font-size: 12px; }
 .fixed-bottom { position: fixed; bottom: 0; left: 0; right: 0; background: #fff; padding: 12px; text-align: right; border-top: 1px solid #ddd; display: flex; gap: 8px; justify-content: flex-end; }
-.empty { text-align: center; padding: 40px; color: #888; }
-.hint { font-size: 12px; color: #888; }
+
+/* 撤销 toast */
+.toast { position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.85); color: #fff; padding: 12px 20px; border-radius: 8px; display: flex; gap: 16px; align-items: center; z-index: 100; }
+.toast button { background: #07c160; color: #fff; border: none; padding: 4px 12px; border-radius: 4px; cursor: pointer; }
 </style>
 </head>
 <body>
@@ -42,22 +60,50 @@ select { padding: 6px; border: 1px solid #ddd; border-radius: 4px; }
     <div class="tab" data-tab="lib" onclick="switchTab('lib')">素材库</div>
   </div>
   <div class="toolbar">
-    <select id="acct" onchange="load()"></select>
+    <select id="acct" onchange="onAcctChange()"></select>
     <span id="st-filter" style="display:none">
-      <label><input type="radio" name="st" value="approved" checked onchange="load()"> 已通过</label>
-      <label><input type="radio" name="st" value="discarded" onchange="load()"> 已丢弃</label>
-      <label><input type="radio" name="st" value="published" onchange="load()"> 已发布</label>
+      <label><input type="radio" name="st" value="approved" checked onchange="loadLib()"> 已通过</label>
+      <label><input type="radio" name="st" value="discarded" onchange="loadLib()"> 已丢弃</label>
+      <label><input type="radio" name="st" value="published" onchange="loadLib()"> 已发布</label>
     </span>
     <span class="hint" id="hint"></span>
   </div>
-  <div id="grid" class="grid"></div>
-  <div class="fixed-bottom" id="actions"></div>
+
+  <!-- 审核 tab:单张 -->
+  <div id="review-pane">
+    <div class="single">
+      <img id="cur-img" class="single-img" src="" style="display:none">
+      <div id="cur-pid" class="pid-badge" style="display:none"></div>
+      <div id="review-empty" class="empty" style="display:none">没有待审,晚点再来</div>
+      <div class="big-actions" id="big-actions" style="display:none">
+        <button class="big-btn big-approve" onclick="act('approve')">批准</button>
+        <button class="big-btn big-discard" onclick="act('discard')">丢弃</button>
+      </div>
+      <div class="refresh-bar">
+        <button class="btn-gray" onclick="loadReview()">刷新</button>
+        <span class="hint" id="review-counter"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 素材库 tab:网格 -->
+  <div id="lib-pane" style="display:none">
+    <div id="grid" class="grid"></div>
+    <div class="fixed-bottom" id="lib-actions"></div>
+  </div>
+</div>
+
+<div id="toast" class="toast" style="display:none">
+  <span id="toast-msg"></span>
+  <button onclick="undo()">撤销</button>
 </div>
 
 <script>
 const API = location.origin;
 function pwd(){ return localStorage.getItem('review_pwd') || ''; }
 function h(){ return {'X-Review-Password': pwd(), 'Content-Type':'application/json'}; }
+function acct(){ return document.getElementById('acct').value; }
+
 function login(){
   const p = document.getElementById('pwd').value;
   fetch(API+'/api/accounts', {headers:{'X-Review-Password': p}})
@@ -72,70 +118,115 @@ function show(accts){
   s.innerHTML='';
   accts.forEach(a => { const o=document.createElement('option'); o.value=a.name; o.textContent=a.name; s.appendChild(o); });
   if(!accts.length) s.innerHTML='<option>(无账号)</option>';
-  load();
+  onAcctChange();
 }
+
 let tab='review';
 function switchTab(t){
   tab=t;
   document.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x.dataset.tab===t));
   document.getElementById('st-filter').style.display = t==='lib' ? '' : 'none';
-  load();
+  document.getElementById('review-pane').style.display = t==='review' ? '' : 'none';
+  document.getElementById('lib-pane').style.display = t==='lib' ? '' : 'none';
+  if(t==='review') loadReview(); else loadLib();
 }
-function load(){
-  const acct=document.getElementById('acct').value;
-  const grid=document.getElementById('grid'); grid.innerHTML='';
-  const acts=document.getElementById('actions'); acts.innerHTML='';
-  document.getElementById('hint').textContent='';
-  if(!acct){ grid.innerHTML='<div class="empty">无账号</div>'; return; }
-  if(tab==='review'){
-    fetch(API+'/api/review?account='+acct+'&limit=20', {headers:h()})
-      .then(r=>r.json()).then(d => {
-        const items=d.items||[];
-        document.getElementById('hint').textContent = items.length ? `待审 ${items.length} 张(勾=丢弃,未勾=通过)` : '';
-        if(!items.length){ grid.innerHTML='<div class="empty">没有待审,晚点再来</div>'; return; }
-        items.forEach(it => grid.appendChild(card(it.pid, true)));
-        acts.innerHTML = '<button class="btn" onclick="submitReview()">提交本批(未勾=通过,勾=丢弃)</button>';
-      });
-  } else {
-    const st=document.querySelector('input[name=st]:checked').value;
-    fetch(`${API}/api/material?account=${acct}&status=${st}`, {headers:h()})
-      .then(r=>r.json()).then(d => {
-        const items=d.items||[];
-        document.getElementById('hint').textContent = `${st} ${items.length} 张` + (st==='published'?'(不可改)':'');
-        if(!items.length){ grid.innerHTML='<div class="empty">空</div>'; return; }
-        items.forEach(it => grid.appendChild(card(it.pid, st!=='published')));
-        if(st!=='published'){
-          acts.innerHTML = '<button class="btn-gray" onclick="mark(\'discard\')">标记丢弃(勾选)</button><button class="btn" onclick="mark(\'approve\')">标记通过(勾选)</button>';
-        }
-      });
+function onAcctChange(){ if(tab==='review') loadReview(); else loadLib(); }
+
+/* ---- 审核 tab:单张 ---- */
+let pendingList=[], idx=0, lastAction=null;
+function loadReview(){
+  const a=acct();
+  fetch(API+'/api/review?account='+a+'&limit=50', {headers:h()})
+    .then(r=>r.json()).then(d => {
+      pendingList = d.items || [];
+      // 跳过当前 idx 之后的新列表(简单起见从头)
+      idx = 0;
+      showCurrent();
+    });
+}
+function showCurrent(){
+  const img=document.getElementById('cur-img');
+  const pidEl=document.getElementById('cur-pid');
+  const empty=document.getElementById('review-empty');
+  const acts=document.getElementById('big-actions');
+  const counter=document.getElementById('review-counter');
+  if(idx >= pendingList.length){
+    img.style.display='none'; pidEl.style.display='none'; acts.style.display='none';
+    empty.style.display=''; counter.textContent='';
+    return;
   }
+  const it = pendingList[idx];
+  img.src = API+'/api/image?pid='+it.pid+'&size=regular';
+  img.style.display='';
+  pidEl.textContent = it.pid + (it.score ? '  分'+it.score : '');
+  pidEl.style.display='';
+  acts.style.display='';
+  empty.style.display='none';
+  counter.textContent = `第 ${idx+1} / ${pendingList.length} 张`;
+}
+function act(action){
+  if(idx >= pendingList.length) return;
+  const it = pendingList[idx];
+  const body = action==='approve'
+    ? {account:acct(), keep:[it.pid], discard:[]}
+    : {account:acct(), keep:[], discard:[it.pid]};
+  fetch(API+'/api/review', {method:'POST', headers:h(), body:JSON.stringify(body)})
+    .then(r=>r.json()).then(() => {
+      lastAction = {pid: it.pid, action};
+      showToast(action==='approve' ? `已批准 ${it.pid}` : `已丢弃 ${it.pid}`);
+      idx++;
+      showCurrent();
+    });
+}
+function undo(){
+  if(!lastAction) return;
+  fetch(API+'/api/material/mark', {method:'POST', headers:h(), body:JSON.stringify({account:acct(), action:'pending', pids:[lastAction.pid]})})
+    .then(r=>r.json()).then(() => {
+      hideToast();
+      lastAction = null;
+      loadReview();  // 重新拉,撤销的回 pending
+    });
+}
+let toastTimer=null;
+function showToast(msg){
+  document.getElementById('toast-msg').textContent = msg;
+  document.getElementById('toast').style.display='';
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(hideToast, 4000);
+}
+function hideToast(){ document.getElementById('toast').style.display='none'; }
+
+/* ---- 素材库 tab:网格 ---- */
+function loadLib(){
+  const a=acct(); const st=document.querySelector('input[name=st]:checked').value;
+  const grid=document.getElementById('grid'); grid.innerHTML='';
+  const acts=document.getElementById('lib-actions'); acts.innerHTML='';
+  document.getElementById('hint').textContent='';
+  fetch(`${API}/api/material?account=${a}&status=${st}`, {headers:h()})
+    .then(r=>r.json()).then(d => {
+      const items=d.items||[];
+      document.getElementById('hint').textContent = `${st} ${items.length} 张` + (st==='published'?'(不可改)':'');
+      if(!items.length){ grid.innerHTML='<div class="empty">空</div>'; return; }
+      items.forEach(it => grid.appendChild(card(it.pid, st!=='published')));
+      if(st!=='published'){
+        acts.innerHTML = '<button class="btn-gray" onclick="markLib(\'discard\')">标记丢弃(勾选)</button><button class="btn" onclick="markLib(\'approve\')">标记通过(勾选)</button>';
+      }
+    });
 }
 function card(pid, checkable){
   const d=document.createElement('div'); d.className='card';
-  d.innerHTML = `<span class="badge">${pid}</span><img src="${API}/api/image?pid=${pid}&size=small" loading="lazy">`
-    + (checkable ? `<input type="checkbox" class="cb" value="${pid}">` : '');
+  d.innerHTML = `<span class="badge">${pid}</span><img src="${API}/api/image?pid=${pid}&size=small" loading="lazy">` + (checkable ? `<input type="checkbox" class="cb" value="${pid}">` : '');
   return d;
 }
 function checked(){ return [...document.querySelectorAll('.cb:checked')].map(c => c.value); }
-function allPids(){ return [...document.querySelectorAll('.cb')].map(c => c.value); }
-function submitReview(){
-  const acct=document.getElementById('acct').value;
-  const all=allPids(); const chk=checked();
-  const keep = all.filter(p => !chk.includes(p));  // 未勾=通过
-  const discard = chk;                             // 勾=丢弃
-  if(!all.length){ alert('没有待审'); return; }
-  fetch(API+'/api/review', {method:'POST', headers:h(), body:JSON.stringify({account:acct, keep, discard})})
-    .then(r=>r.json()).then(d => { alert(`通过 ${d.approved} 丢弃 ${d.discarded}`); load(); });
-}
-function mark(action){
-  const acct=document.getElementById('acct').value;
+function markLib(action){
   const chk=checked();
   if(!chk.length){ alert('没勾选'); return; }
-  fetch(API+'/api/material/mark', {method:'POST', headers:h(), body:JSON.stringify({account:acct, action, pids:chk})})
-    .then(r=>r.json()).then(d => { alert(`标记 ${d.marked} 张`); load(); });
+  fetch(API+'/api/material/mark', {method:'POST', headers:h(), body:JSON.stringify({account:acct(), action, pids:chk})})
+    .then(r=>r.json()).then(d => { alert(`标记 ${d.marked} 张`); loadLib(); });
 }
+
 if(pwd()){
-  // 已登录过,直接拉 accounts
   fetch(API+'/api/accounts', {headers:h()}).then(r => r.ok ? r.json() : null).then(d => d && show(d.accounts||[])).catch(()=>{});
 }
 </script>

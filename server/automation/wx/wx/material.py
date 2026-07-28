@@ -104,10 +104,11 @@ def list_material(account: str, status: str) -> list[dict]:
 
 
 def mark(account: str, action: str, pids: list[str]) -> int:
-    """素材库 tab 标记:action=approve/discard,只改勾选的,且不改 published(已发的不动)。"""
-    if action not in ("approve", "discard") or not pids:
+    """素材库 tab 标记:action=approve/discard/pending(撤销用),只改勾选的,且不改 published(已发的不动)。"""
+    status_map = {"approve": "approved", "discard": "discarded", "pending": "pending"}
+    new_status = status_map.get(action)
+    if not new_status or not pids:
         return 0
-    new_status = "approved" if action == "approve" else "discarded"
     c = _conn()
     now = datetime.now().isoformat(timespec="seconds")
     n = 0
