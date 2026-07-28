@@ -61,6 +61,10 @@ class Settings:
         # 爬虫 server proxy(pids 模式用它拉图;同部署默认本机)
         self.server_base_url = _env("SERVER_BASE_URL", "http://127.0.0.1:3000")
         self.server_api_key = _env("SERVER_API_KEY", "")
+        # 爬虫 SQLite(素材库 material 表存这里,跟 pic 表同库)
+        self.crawler_db_path = _env("CRAWLER_DB_PATH", str(BASE_DIR.parent.parent / "data" / "pixiv.db"))
+        # 审核网页密码(浏览器输入;留空则不鉴权,生产务必配)
+        self.review_password = _env("REVIEW_PASSWORD", "")
         # token 提前刷新余量（秒），默认提前 5 分钟续期
         self.token_refresh_margin = _env_int("WX_TOKEN_REFRESH_MARGIN", 300)
         self.log_level = _env("WX_LOG_LEVEL", "INFO").upper()
