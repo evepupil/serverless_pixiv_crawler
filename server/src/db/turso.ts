@@ -99,6 +99,8 @@ export interface BusinessCandidateQuery {
   downloadStatus?: BusinessCandidateDownloadStatus;
   artistId?: string;
   tags?: string[];
+  excludeTags?: string[];
+  minPopularity?: number;
 }
 
 export interface BusinessCandidateItem extends RecentPreviewCandidate {
@@ -2156,6 +2158,24 @@ export class TursoService {
       whereParts.push(downloadStatusSql);
     }
 
+    // excludeTags: NOT LIKE 过滤(AI/R18 等;避免裸 'AI' 误杀 'NO AI',所以用完整标签词)
+    let excludeWhereSql = '';
+    const excludeTags = Array.from(new Set((query.excludeTags || []).map(t => t.trim()).filter(Boolean)));
+    if (excludeTags.length > 0) {
+      excludeWhereSql = ' AND ' + excludeTags.map(() => `COALESCE(p.tag, '') NOT LIKE ?`).join(' AND ');
+      for (const et of excludeTags) {
+        args.push(`%${et}%`);
+      }
+    }
+
+    // minPopularity: 质量门槛(字面值,number 已校验,无注入风险)
+    const minPopularity = typeof query.minPopularity === 'number' && Number.isFinite(query.minPopularity)
+      ? query.minPopularity
+      : 0;
+    if (minPopularity > 0) {
+      whereParts.push(`COALESCE(p.popularity, 0) >= ${minPopularity}`);
+    }
+
     args.push(safeTopN);
 
     try {
@@ -2193,6 +2213,7 @@ export class TursoService {
           WHERE ${whereParts.join(' AND ')}
             ${tagWhereSql}
             ${artistWhereSql}
+            ${excludeWhereSql}
           ORDER BY
             candidate_score DESC,
             ${prioritySql} DESC,

@@ -243,6 +243,12 @@ async function handleBusinessCandidatesAction(
   const limit = parseBoundedInt(payload.limit, 30, 1, 200);
   const topN = parseBoundedInt(payload.topN, Math.max(limit, 200), limit, 1000);
   const tags = parseTagList(payload.tags ?? payload.tag);
+  const excludeTags = parseTagList(payload.excludeTags ?? payload.exclude);
+  const minPopularity = typeof payload.minPopularity === 'number'
+    ? Math.max(0, payload.minPopularity)
+    : (typeof payload.minPopularity === 'string' && payload.minPopularity.trim()
+      ? Math.max(0, parseFloat(payload.minPopularity))
+      : 0);
   const downloadStatus = typeof payload.downloadStatus === 'string'
     ? payload.downloadStatus
     : 'any';
@@ -260,7 +266,9 @@ async function handleBusinessCandidatesAction(
         ? downloadStatus
         : 'any',
     artistId: typeof payload.artistId === 'string' ? payload.artistId : undefined,
-    tags
+    tags,
+    excludeTags,
+    minPopularity
   });
 
   sendJson(res, 200, {
